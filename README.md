@@ -197,6 +197,113 @@ verdict_engine ── 融合评审引擎（见下方详细流程）
 
 ---
 
+## 使用 TRAE 开发（推荐）
+
+本项目推荐搭配 [TRAE IDE](https://www.trae.cn/) 或 [TRAE Work](https://www.trae.cn/) 进行开发和定制。TRAE 是一个 AI 原生 IDE，能帮助你快速理解项目代码、修改逻辑、调试问题。
+
+### 快速上手
+
+#### 1. 用 TRAE IDE 打开项目
+
+```bash
+# 克隆代码后，用 TRAE IDE 打开项目目录
+cd langgraph
+# 在 TRAE IDE 中打开此文件夹
+```
+
+#### 2. 让 TRAE 先遍历项目写规则
+
+打开 TRAE IDE 后，第一步不是写代码，而是让 AI 先理解你的项目。在 TRAE 对话框中输入：
+
+```
+请遍历这个项目的所有核心文件，理解项目架构、技术栈、目录结构和命名规范，
+然后在 .trae/rules/ 目录下生成项目规则文件，包括：
+1. 项目核心规范（架构、技术栈、核心文件）
+2. LangGraph 开发规范（节点签名、状态定义、路由）
+3. Agent 开发规范（LLM 配置、重试/熔断、结构化输出）
+4. 评分体系规范（四维评分、题材阈值、决策规则）
+5. API 服务规范（路由、SSE 流式、存储层）
+6. 部署运维规范（Docker 命令、镜像源、数据库）
+```
+
+TRAE 会读取 `src/novelfactory/` 下的源码，自动生成 `.trae/rules/` 规则文件。后续每次对话，AI 都会遵循这些规则，确保代码风格一致。
+
+#### 3. 启动开发环境
+
+在 TRAE 对话框中输入：
+
+```
+请帮我启动 NovelFactory 开发环境：
+1. 先检查 Docker Desktop 是否运行
+2. 启动 PostgreSQL、Redis、Milvus、Neo4j 服务
+3. 等待所有服务健康检查通过
+4. 启动 API 开发服务器（热重载模式）
+```
+
+#### 4. 修改代码
+
+告诉 TRAE 你想改什么，例如：
+
+```
+我想修改评分系统的通过阈值，把玄幻题材的质量阈值从 88 降到 80。
+请找到相关配置文件并修改，同时更新对应的测试用例。
+```
+
+```
+我想新增一个"科幻"题材的评分阈值配置。
+AI味容忍度应该比玄幻高一些，质量阈值设为 82。
+```
+
+```
+我想给 Writing Crew 增加一个"文风一致性检查"的前置节点，
+在 chapter_writer 之前检查当前章节文风是否与前 3 章一致。
+```
+
+#### 5. 调试问题
+
+```
+API 容器启动后不断重启，请查看日志并帮我排查原因。
+```
+
+```
+写作子图的 verdict_engine 评分总是低于 55 分导致死循环，
+请帮我分析评分日志，找出是哪个维度拉低了分数。
+```
+
+### 小白零基础启动流程
+
+如果你不熟悉 Docker 或 Python，按以下步骤操作：
+
+```
+第一步：安装 Docker Desktop
+→ 下载地址：https://docs.docker.com/desktop/
+→ 安装后启动，等待状态变为 Running
+
+第二步：配置 Docker 镜像加速（中国大陆必做）
+→ Docker Desktop → Settings → Docker Engine
+→ 添加："registry-mirrors": ["https://docker.1ms.run"]
+
+第三步：克隆项目
+→ git clone https://github.com/Jason-ship/langgraph.git
+→ cd langgraph
+
+第四步：配置环境变量
+→ cp .env.example .env
+→ 用编辑器打开 .env，填入你的 DeepSeek API 密钥
+→ 获取地址：https://platform.deepseek.com/api_keys
+
+第五步：用 TRAE 一键启动
+→ 在 TRAE IDE 中打开项目
+→ 对话框输入：「请帮我启动全部 Docker 服务并构建 API 镜像」
+→ 等待构建完成（首次约 5-15 分钟）
+
+第六步：验证
+→ 浏览器打开 http://localhost:8123/health
+→ 看到 {"status":"ok"} 就成功了
+```
+
+---
+
 ## 部署指南
 
 ### 一、系统要求
