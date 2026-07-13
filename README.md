@@ -777,6 +777,190 @@ docker compose -p langgraph down -v
 
 ---
 
+## API 使用指南
+
+部署完成后，API 服务运行在 `http://localhost:8123`（或通过 Nginx 代理 `http://localhost:8081`）。完整的交互式 API 文档访问 `http://localhost:8123/docs`。
+
+### 健康检查
+
+```bash
+# 基础健康检查（返回状态+版本+tools-proxy状态）
+curl http://localhost:8123/health
+# {"status":"ok","version":"7.8.0","tools_proxy":"ok"}
+
+# 就绪检查（检查数据库连接）
+curl http://localhost:8123/ready
+
+# 系统信息（版本、配置摘要）
+curl http://localhost:8123/info
+
+# Prometheus 指标
+curl http://localhost:8123/metrics
+```
+
+### 创建小说项目
+
+```bash
+# 1. 创建线程（一个线程对应一部小说）
+curl -X POST http://localhost:8123/threads \
+  -H "Content-Type: application/json" \
+  -d '{"metadata": {"title": "我的末日编程小说"}}'
+# 返回：{"thread_id": "abc-123-...", "metadata": {...}}
+
+# 2. 启动创作（流式模式，实时推送进度）
+curl -X POST http://localhost:8123/threads/{thread_id}/runs \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": {
+      "seed_idea": "一个程序员在末日中发现自己的代码能修改现实",
+      "genre": "系统流",
+      "project_name": "末日编程",
+      "target_chapters": 1000
+    },
+    "stream": true
+  }'
+```
+
+### 运行模式
+
+| 端点 | 模式 | 说明 |
+|------|------|------|
+| `POST /threads/{id}/runs` | 流式（默认） | SSE 实时推送写作进度、评分、Token 用量 |
+| `POST /threads/{id}/runs/stream` | 流式（别名） | 同上，SDK 兼容 |
+| `POST /threads/{id}/runs/wait` | 同步 | 等待全部完成再返回（适合后台任务） |
+
+```bash
+# 同步模式（等待完成，不流式推送）
+curl -X POST http://localhost:8123/threads/{thread_id}/runs/wait \
+  -H "Content-Type: application/json" \
+  -d '{"input": {...}, "stream": false}'
+```
+
+### 查看创作状态
+
+```bash
+# 获取当前线程状态（当前章节、阶段、已完成章节等）
+curl http://localhost:8123/threads/{thread_id}/state
+
+# 获取特定检查点状态（时间旅行）
+curl http://localhost:8123/threads/{thread_id}/state/{checkpoint_id}
+
+# 查看运行历史
+curl -X POST http://localhost:8123/threads/{thread_id}/history \
+  -H "Content-Type: application/json" \
+  -d '{"limit": 10}'
+
+# 列出所有线程
+curl http://localhost:8123/threads
+```
+
+### 人工干预（Interrupt）
+
+当系统遇到 `wait_for_review` 节点时，会暂停等待人工审核：
+
+```bash
+# 查看当前状态（确认是否在等待审核）
+curl http://localhost:8123/threads/{thread_id}/state
+
+# 注入人工指导后继续运行
+curl -X POST http://localhost:8123/threads/{thread_id}/runs \
+  -H "Content-Type: application/json" \
+  -d '{
+    "command": {
+      "resume": {
+        "user_decision": "approve",
+        "human_guidance": "主角的性格可以更果断一些，减少内心独白"
+      }
+    },
+    "stream": true
+  }'
+```
+
+### 助手管理
+
+```bash
+# 列出所有助手
+curl http://localhost:8123/assistants
+
+# 获取助手详情
+curl http://localhost:8123/assistants/novelfactory
+
+# 获取图结构（节点和边）
+curl http://localhost:8123/assistants/novelfactory/graph
+
+# 获取状态 Schema
+curl http://localhost:8123/assistants/novelfactory/schemas
+
+# 获取子图列表
+curl http://localhost:8123/assistants/novelfactory/subgraphs
+```
+
+### 持久化存储
+
+```bash
+# 存储数据（命名空间+键值对）
+curl -X PUT http://localhost:8123/store/items \
+  -H "Content-Type: application/json" \
+  -d '{"namespace": ["project", "my-novel"], "key": "config", "value": {"genre": "玄幻"}}'
+
+# 获取数据
+curl "http://localhost:8123/store/items?namespace=project&namespace=my-novel&key=config"
+
+# 删除数据
+curl -X DELETE "http://localhost:8123/store/items?namespace=project&namespace=my-novel&key=config"
+
+# 搜索存储
+curl -X POST http://localhost:8123/store/items/search \
+  -H "Content-Type: application/json" \
+  -d '{"namespace_prefix": ["project"], "filter": {"genre": "玄幻"}}'
+```
+
+### 飞书回调
+
+```bash
+# 飞书事件回调（由飞书平台调用）
+curl -X POST http://localhost:8123/callback \
+  -H "Content-Type: application/json" \
+  -d '{"challenge": "...", "event": {...}}'
+
+# 手动恢复线程
+curl -X POST http://localhost:8123/resume/{thread_id}
+```
+
+### CLI 工具
+
+```bash
+# 仪表盘（查看所有线程和状态）
+./novel dashboard
+
+# 附加到指定线程（实时查看写作进度）
+./novel dashboard -t {thread_id} --attach
+```
+
+### RunRequest 参数说明
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `input` | dict | `{}` | 创意输入（seed_idea / genre / project_name / target_chapters） |
+| `stream` | bool | `true` | 是否流式推送 |
+| `assistant_id` | str | `novelfactory` | 助手 ID |
+| `command` | dict | `null` | 命令（resume 用于恢复中断） |
+| `interrupt_before` | list | `null` | 在指定节点前中断 |
+| `interrupt_after` | list | `null` | 在指定节点后中断 |
+| `config` | dict | `{}` | 额外配置 |
+| `metadata` | dict | `null` | 运行元数据 |
+
+### input 创意参数
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|:----:|------|
+| `seed_idea` | str | 是 | 一句话创意描述 |
+| `genre` | str | 是 | 题材（玄幻/仙侠/都市/系统流/悬疑灵异/...） |
+| `project_name` | str | 是 | 项目名称 |
+| `target_chapters` | int | 否 | 目标章节数（默认 1000） |
+
+---
+
 ## 开发环境
 
 ### 安装开发依赖
