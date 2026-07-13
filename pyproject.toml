@@ -1,0 +1,174 @@
+# NovelFactory LangGraph v6.1
+# Multi-agent novel writing system powered by LangGraph.
+#
+# Build system:
+#   hatchling (aligned with official langgraph project)
+#
+# Dependency version strategy:
+#   All dependencies have both lower and upper bounds (per official langgraph
+#   convention). Upper bounds prevent auto-install of incompatible major
+#   versions and follow the official langgraph/pyproject.toml ranges.
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "novelfactory-langgraph"
+version = "6.1.0"
+description = "AI Novel Creation System - LangGraph Multi-Agent Architecture"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    { name = "NovelFactory Team" }
+]
+keywords = ["langgraph", "multi-agent", "novel", "writing", "ai"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    # ── LangGraph Core (aligned with official langgraph v1.2.6 ranges) ─────
+    "langgraph>=1.1.0,<1.3.0",
+    "langgraph-checkpoint>=4.1.1,<5.0.0",
+    "langgraph-checkpoint-postgres>=3.1.0,<4.0.0",
+    "langgraph-checkpoint-redis>=0.4.0,<1.0.0",
+    "langgraph-checkpoint-sqlite>=3.0.0,<4.0.0",
+
+    # ── LangChain Core (aligned with official langgraph ranges) ────────────
+    "langchain-core>=1.4.7,<2",
+    "langchain-openai>=1.0.0,<2",
+
+    # ── Chinese NLP (AI Style Analysis) ────────────────────────────────────
+    "jieba>=0.42.0,<1",
+
+    # ── Database, Cache & Knowledge Graph ──────────────────────────────────
+    "psycopg-pool>=3.2.0,<4",
+    "psycopg[binary]>=3.2.0,<4",
+    "neo4j>=6.0.0,<7.0.0",
+    "pymilvus>=3.0.0,<4.0.0",
+    "aiosqlite>=0.20.0,<1.0.0",
+    "redis>=7.0.0,<8.0.0",
+
+    # ── Graph Analysis (Causal Graph Builder) ─────────────────────────────
+    "networkx>=3.0,<4",
+
+    # ── Numerical & Signal Processing (Emotion Arc) ───────────────────────
+    "numpy>=1.24.0,<2",
+    "scipy>=1.10.0,<2",
+
+    # ── Web Framework ─────────────────────────────────────────────────────
+    "fastapi>=0.110.0,<1",
+    "uvicorn[standard]>=0.30.0,<1",
+    "httpx>=0.27.0,<1",
+    "sse-starlette>=1.8.0,<3",
+    "psutil>=7.0.0,<8.0.0",
+
+    # ── Configuration ───────────────────────────────────────────────────────
+    "pydantic>=2.7.4,<3",
+    "pydantic-settings>=2.2.0,<3",
+
+    # ── CLI ─────────────────────────────────────────────────────────────────
+    "click>=8.1.0,<9",
+    "rich>=13.0.0,<14",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0,<9",
+    "pytest-asyncio>=0.23.0,<1",
+    "ruff>=0.3.0,<1",
+    "mypy>=1.8.0,<2",
+]
+embedding = [
+    "langchain-community>=0.0.10,<1",
+    "sentence-transformers>=2.2.0,<4",
+]
+all = [
+    "novelfactory-langgraph[dev,embedding]",
+]
+
+[project.scripts]
+novelfactory = "novelfactory.cli.commands:cli"
+
+[project.urls]
+Homepage = "https://github.com/Jason-ship/langgraph"
+Documentation = "https://github.com/Jason-ship/langgraph/docs"
+Repository = "https://github.com/Jason-ship/langgraph"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/novelfactory"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+
+[tool.mypy]
+python_version = "3.10"
+check_untyped_defs = true
+ignore_missing_imports = true
+allow_untyped_decorators = true
+warn_unused_ignores = true
+
+# ── Per-module overrides (known third-party / generated code) ────────
+[[tool.mypy.overrides]]
+module = [
+    "numpy.*",
+    "pandas.*",
+    "langgraph.*",
+    "langchain_core.*",
+    "langchain_openai.*",
+    "psycopg.*",
+    "psycopg_pool.*",
+    "neo4j.*",
+    "pymilvus.*",
+    "redis.*",
+    "fastapi.*",
+    "uvicorn.*",
+    "httpx.*",
+    "sse_starlette.*",
+    "pydantic.*",
+    "click.*",
+]
+ignore_missing_imports = true
+follow_imports = "skip"
+
+# ── pytest ──────────────────────────────────────────────────────────
+# 与 Makefile `pytest tests/ -v --tb=short` 对齐；async 测试走 pytest-asyncio 严格模式。
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-ra",
+    "--tb=short",
+    "--strict-markers",
+    "--strict-config",
+]
+asyncio_mode = "auto"
+markers = [
+    "smoke: 快速冒烟测试（<1s，无外部依赖）",
+    "unit: 单元测试（mock 外部服务）",
+    "integration: 集成测试（需 Docker 服务或真实组件）",
+    "slow: 较慢的测试（>1s），可在 CI 选跑",
+]
+# 注：暂不启用 filterwarnings=["error"]，现有测试覆盖率约 10.9%，
+# 将所有 warning 转 error 有回归风险。待测试基线稳定后再收紧。
+filterwarnings = [
+    "ignore::DeprecationWarning:langgraph.*",
+    "ignore::DeprecationWarning:langchain_core.*",
+]

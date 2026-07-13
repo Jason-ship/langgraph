@@ -1,0 +1,15 @@
+#!/usr/bin/env zsh
+# NovelFactory CLI wrapper — 自动使用 Python 3.13 并设置 PYTHONPATH
+# 用法: ./novel dashboard -t <thread-id> --attach
+
+SCRIPT_DIR="${0:A:h}"
+PYTHON="/usr/local/bin/python3.13"
+if [[ ! -x "$PYTHON" ]]; then
+    PYTHON="/opt/homebrew/bin/python3.13"
+fi
+if [[ ! -x "$PYTHON" ]]; then
+    PYTHON="python3"
+fi
+
+export PYTHONPATH="$SCRIPT_DIR/src:${PYTHONPATH:-}"
+exec "$PYTHON" -m novelfactory.cli "$@"

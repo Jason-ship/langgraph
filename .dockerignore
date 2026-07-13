@@ -1,0 +1,108 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Docker .dockerignore — matches what a production build should NOT include
+# Keeps the context small, reduces build time, and prevents secrets leaking
+# into the image layers.
+# ──────────────────────────────────────────────────────────────────────────────
+
+# ── Version Control ────────────────────────────────────────────────────────────
+.git
+.gitattributes
+.github/
+.gitignore
+
+# ── Python Bytecode & Caches ───────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# ── Virtual Environments ───────────────────────────────────────────────────────
+.venv/
+venv/
+env/
+.env.local
+.env.*.local
+
+# ── IDE & Editor ───────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ── Testing & Coverage ─────────────────────────────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+cover/
+
+# ── Development Files ──────────────────────────────────────────────────────────
+*.md
+!README.md
+*.txt
+*.log
+*.bak
+*.tmp
+*.mermaid
+*.svg
+
+# ── Test & Debug ───────────────────────────────────────────────────────────────
+tests/
+_test_*
+test_*
+analyze_*.py
+_verify*.py
+fix_*.py
+*.yaml.bak
+
+# ── LangGraph sub-project (separate project) ──────────────────────────────────
+langgraph/
+langgraph.tar.gz
+
+# ── Plans & Research ──────────────────────────────────────────────────────────
+feasibility_*
+plan_*
+research/
+deliverables/
+.mavis/plans/
+
+# ── Secrets (NEVER build these into the image) ─────────────────────────────────
+*.pem
+*.key
+*.crt
+*.pfx
+.env
+.env.production
+.env.*
+credentials*
+*secret*
+*password*
+
+# ── Docker files (not needed at runtime) ──────────────────────────────────────
+# Keep Dockerfile but skip docker-compose files from source tree
+# (Note: we still need deploy/ for entrypoint.sh and healthcheck.sh)
+docker-compose*.yml
+docker-compose*.yaml
+# deploy/ kept for entrypoint + healthcheck scripts
+
+# ── Large files ────────────────────────────────────────────────────────────────
+*.tar.gz
+*.zip
+*.mp4
+*.mov
+*.png
+*.jpg
+*.jpeg
+*.gif
+

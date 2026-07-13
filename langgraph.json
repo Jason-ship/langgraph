@@ -1,0 +1,9 @@
+{
+    "dependencies": ["."],
+    "graphs": {
+        "agent": "src/novelfactory/graph/new_builder.py:create_dev_graph"
+    },
+    "env": {
+        "NOVELFACTORY_LOG_PATH": ""
+    }
+}

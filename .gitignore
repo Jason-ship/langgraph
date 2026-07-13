@@ -1,0 +1,115 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual envs
+.venv/
+.langgraph_api/
+venv/
+env/
+
+# IDE - all hidden directories and AI assistant configs (keep essential dotfiles only)
+.claude/
+.trae/
+.dbg/
+.vscode/
+.idea/
+.cursorrules
+.clinerules
+.threads.json
+AGENTS.md
+CLAUDE.md
+CONTEXT.md
+MCP.md
+RULES.md
+
+# Local env / secrets
+.env
+.env.local
+.env.production
+*.pem
+*.key
+*.crt
+*.pfx
+secrets/
+credentials*
+
+# Claude local preferences
+CLAUDE.local.md
+.claude/settings.local.json
+
+# Build / dist
+build/
+dist/
+*.egg
+
+# Test artifacts
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+
+# Project-specific: deploy / runtime
+deploy/runtime/
+logs/
+*.log
+!logs/.gitkeep
+tmp/
+*.sqlite
+*.sqlite-journal
+
+# Generated docs
+docs/_build/
+
+# Temp / debug scripts
+_tmp_*
+chk.py
+chk_db.py
+tmp_*.py
+verify_fix*
+check_*.ps1
+check_*.cmd
+fix_*.ps1
+fix_hcs_admin.bat
+force_enable.ps1
+install_wsl.ps1
+run_as_system.ps1
+run_elevated.ps1
+hcs_fix_*.ps1
+deep_diagnose.ps1
+write_wslconfig.ps1
+system_task_runner.ps1
+
+# Scratch files
+*.tar.gz
+*.zip
+feishu_auth.png
+feishu_qr.png
+
+# ── Public repo cleanup (v6.1) ──────────────────────────────────────────────
+
+# Third-party reference source code (not part of this project)
+research/
+
+# Personal / non-core files
+competition-post.md
+novelfactory-docs.html
+novelfactory_architecture_debug_report.md
+debug-full-chain-test-debug.md
+学习资料_*
+
+# Runtime state / debug scripts (all development helpers, not core functionality)
+resume.json
+resume_input.json
+scripts/
+
+# OS files
+.DS_Store
+Thumbs.db

@@ -1,0 +1,1 @@
+"""NovelFactory Skill System."""

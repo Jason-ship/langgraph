@@ -1,0 +1,316 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# NovelFactory LangGraph v6.1 — Windows Docker Desktop docker-compose
+#
+# Usage:
+#   Deploy all:    docker compose -p langgraph up -d
+#   Selectively:   docker compose -p langgraph up -d postgres redis  (先核心)
+#   Build API:     docker compose -p langgraph up -d --build api
+#   Logs:          docker compose -p langgraph logs -f api
+#   Stop:          docker compose -p langgraph down
+#   Full cleanup:  docker compose -p langgraph down -v  (!!! 删所有数据)
+# ──────────────────────────────────────────────────────────────────────────────
+
+x-shared-env: &shared-env
+  TZ: Asia/Shanghai
+  CHECKPOINT_TYPE: ${CHECKPOINT_TYPE:-postgres}
+  STORE_TYPE: ${STORE_TYPE:-postgres}
+  STORAGE_TYPE: postgres
+  LLM_REQUEST_TIMEOUT: ${LLM_REQUEST_TIMEOUT:-900}
+
+services:
+
+  # ── PostgreSQL + pgvector ──────────────────────────────────────────────────
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: langgraph_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-novelfactory}
+      POSTGRES_USER: ${POSTGRES_USER:-noveluser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-novelpass2024}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8"
+      POSTGRES_EXTENSIONS: vector
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./deploy/scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    command: >
+      postgres
+      -c max_connections=80
+      -c shared_buffers=2GB
+      -c effective_cache_size=4GB
+      -c maintenance_work_mem=512MB
+      -c wal_buffers=64MB
+      -c checkpoint_completion_target=0.9
+      -c max_wal_size=4GB
+      -c min_wal_size=640MB
+      -c random_page_cost=1.1
+      -c effective_io_concurrency=200
+      -c work_mem=64MB
+    ports:
+      - "${POSTGRES_PORT:-5434}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-noveluser} -d ${POSTGRES_DB:-novelfactory}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    networks:
+      - langgraph_net
+    mem_limit: 8G
+
+  # ── Redis ──────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:6-alpine
+    container_name: langgraph_redis
+    restart: unless-stopped
+    command: >
+      redis-server
+      --requirepass ${REDIS_PASSWORD:-novelredis2024}
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+      --maxmemory-samples 5
+      --timeout 300
+      --tcp-keepalive 60
+    volumes:
+      - redis_data:/data
+    ports:
+      - "${REDIS_PORT:-6380}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-novelredis2024}", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    networks:
+      - langgraph_net
+    mem_limit: 512M
+
+  # ── NovelFactory API ───────────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: langgraph_api
+    restart: unless-stopped
+    environment:
+      <<: *shared-env
+      # Database
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-noveluser}:${POSTGRES_PASSWORD:-novelpass2024}@postgres:5432/${POSTGRES_DB:-novelfactory}"
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: ${POSTGRES_DB:-novelfactory}
+      DB_USER: ${POSTGRES_USER:-noveluser}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-novelpass2024}
+      # Redis
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_DB: "0"
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-novelredis2024}
+      # LLM Provider
+      ARK_API_KEY: ${ARK_API_KEY}
+      ARK_BASE_URL: ${ARK_BASE_URL:-https://ark.cn-beijing.volces.com/api/coding/v3}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      SILICONFLOW_API_KEY: ${SILICONFLOW_API_KEY}
+      MINIMAX_API_KEY: ${MINIMAX_API_KEY:-}
+      # LangSmith Tracing
+      LANGSMITH_API_KEY: ${LANGSMITH_API_KEY:-}
+      LANGSMITH_TRACING: ${LANGSMITH_TRACING:-false}
+      LANGSMITH_PROJECT: ${LANGSMITH_PROJECT:-novelfactory}
+      # Feishu
+      LARK_APP_ID: ${LARK_APP_ID:-}
+      LARK_APP_SECRET: ${LARK_APP_SECRET:-}
+      FEISHU_USER_OPEN_ID: ${FEISHU_USER_OPEN_ID:-}
+      FEISHU_ROOT_FOLDER: ${FEISHU_ROOT_FOLDER:-}
+      LARK_PROXY_URL: http://tools_proxy:5004
+      # Milvus
+      MILVUS_HOST: ${MILVUS_HOST:-langgraph_milvus}
+      MILVUS_PORT: ${MILVUS_PORT:-19530}
+      # Embedding (SiliconFlow)
+      EMBEDDING_DIMS: ${EMBEDDING_DIMS:-1024}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-Qwen/Qwen3-Embedding-0.6B}
+      EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-https://api.siliconflow.cn/v1}
+      EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
+      # LangGraph msgpack: VerdictLevel now registered via serde in checkpointer.py.
+      # Set to false as safety net for any other custom types in existing checkpoints.
+      LANGGRAPH_STRICT_MSGPACK: "false"
+      # Neo4j
+      NEO4J_HOST: ${NEO4J_HOST:-langgraph_neo4j}
+      NEO4J_PORT: ${NEO4J_PORT:-7687}
+      NEO4J_USER: ${NEO4J_USER:-neo4j}
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-novelgraph2024}
+      # 内部 API 地址（容器内 uvicorn 监听端口）
+      BASE_URL: ${BASE_URL:-http://localhost:8000}
+      # 飞书回调验证（请从飞书开放平台应用配置中获取）
+      FEISHU_VERIFICATION_TOKEN: ${FEISHU_VERIFICATION_TOKEN:-}
+      FEISHU_ENCRYPT_KEY: ${FEISHU_ENCRYPT_KEY:-}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # DB Pool
+      DB_POOL_MIN_SIZE: ${DB_POOL_MIN_SIZE:-2}
+      DB_POOL_MAX_SIZE: ${DB_POOL_MAX_SIZE:-10}
+      DB_CONNECT_TIMEOUT: ${DB_CONNECT_TIMEOUT:-30}
+      DB_STATEMENT_TIMEOUT: ${DB_STATEMENT_TIMEOUT:-30000}
+      # Pricing
+      DEEPSEEK_PRICE_INPUT: ${DEEPSEEK_PRICE_INPUT:-0.5}
+      DEEPSEEK_PRICE_OUTPUT: ${DEEPSEEK_PRICE_OUTPUT:-2.0}
+      DEEPSEEK_PRICE_DEFAULT_INPUT: ${DEEPSEEK_PRICE_DEFAULT_INPUT:-0.5}
+      DEEPSEEK_PRICE_DEFAULT_OUTPUT: ${DEEPSEEK_PRICE_DEFAULT_OUTPUT:-2.0}
+      # Monitoring
+      FEISHU_ALERT_WEBHOOK: ${FEISHU_ALERT_WEBHOOK:-}
+      ALERT_MIN_LEVEL: ${ALERT_MIN_LEVEL:-ERROR}
+      AUDIT_LOG_DIR: /data/audit
+      AUDIT_LOG_ENABLED: ${AUDIT_LOG_ENABLED:-true}
+      NOVELFACTORY_LOG_PATH: /data/logs/novelfactory.log
+      NOVELFACTORY_ENV: ${NOVELFACTORY_ENV:-development}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+      # Business defaults
+      CHAPTER_MIN_WORD_COUNT: "1500"
+      CHAPTER_TARGET_WORD_COUNT: "3000"
+      GRADE_C_THRESHOLD: "60"
+      GRADE_B_THRESHOLD: "75"
+      GRADE_A_THRESHOLD: "90"
+      MAX_KEEP_CHAPTERS: "100"
+      # Storage
+      STORAGE_TYPE: postgres
+      STORAGE_PATH: /data
+      # Python
+      PYTHONUNBUFFERED: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+      # Workers
+      WORKERS: "1"
+    volumes:
+      - langgraph_data:/data
+      - lark_cli_config:/home/novelfactory/.lark-cli
+    ports:
+      - "${API_PORT:-8123}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      milvus:
+        condition: service_started
+      neo4j:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/healthcheck.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - langgraph_net
+    mem_limit: 8G
+
+  # ── Tools Proxy (lark-cli HTTP 代理) ───────────────────────────────────────
+  tools_proxy:
+    build:
+      context: server/tools-proxy
+      dockerfile: Dockerfile
+    container_name: langgraph_tools_proxy
+    restart: unless-stopped
+    environment:
+      LARK_APP_ID: ${LARK_APP_ID:-}
+      LARK_APP_SECRET: ${LARK_APP_SECRET:-}
+      FEISHU_USER_OPEN_ID: ${FEISHU_USER_OPEN_ID:-}
+    volumes:
+      - lark_cli_config:/root/.lark-cli
+    ports:
+      - "5004:5004"
+    networks:
+      - langgraph_net
+    mem_limit: 256M
+
+  # ── Nginx Reverse Proxy ────────────────────────────────────────────────────
+  nginx:
+    image: nginx:latest
+    container_name: langgraph_nginx
+    restart: unless-stopped
+    volumes:
+      - ./deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./deploy/nginx/conf.d:/etc/nginx/conf.d:ro
+    ports:
+      - "${NGINX_PORT:-8081}:80"
+      - "${NGINX_SSL_PORT:-8443}:443"
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - langgraph_net
+    mem_limit: 256M
+
+  # ── Milvus Vector Database ──────────────────────────────────────────────────
+  milvus:
+    image: milvusdb/milvus:v2.4.17
+    container_name: langgraph_milvus
+    restart: unless-stopped
+    command: ["milvus", "run", "standalone"]
+    environment:
+      ETCD_USE_EMBED: "true"
+      ETCD_DATA_DIR: /var/lib/milvus/etcd
+      COMMON_STORAGE_TYPE: local
+      COMMON_STORAGELOCAL_ROOTPATH: /var/lib/milvus/data
+      CACHE_CPU_MEM_LIMIT: ${MILVUS_MEM_LIMIT:-4}
+    volumes:
+      - milvus_data:/var/lib/milvus
+    ports:
+      - "${MILVUS_PORT:-19530}:19530"
+      - "${MILVUS_HTTP_PORT:-9091}:9091"
+    networks:
+      - langgraph_net
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 2 bash -c 'echo > /dev/tcp/localhost/19530'"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 60s
+    mem_limit: 4G
+
+  # ── Neo4j Graph Database ────────────────────────────────────────────────────
+  neo4j:
+    image: neo4j:5
+    container_name: langgraph_neo4j
+    restart: unless-stopped
+    environment:
+      NEO4J_AUTH: ${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD:-novelgraph2024}
+      NEO4J_PLUGINS: '["apoc", "graph-data-science"]'
+      NEO4J_dbms_memory_pagecache_size: ${NEO4J_PAGE_CACHE:-512M}
+      NEO4J_dbms_memory_heap_initial__size: ${NEO4J_HEAP_INIT:-512M}
+      NEO4J_dbms_memory_heap_max__size: ${NEO4J_HEAP_MAX:-1G}
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+    ports:
+      - "${NEO4J_BOLT_PORT:-7687}:7687"
+      - "${NEO4J_HTTP_PORT:-7474}:7474"
+    networks:
+      - langgraph_net
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:7474 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+    mem_limit: 4G
+
+networks:
+  langgraph_net:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.28.0.0/16
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  langgraph_data:
+    driver: local
+  milvus_data:
+    driver: local
+  neo4j_data:
+    driver: local
+  neo4j_logs:
+    driver: local
+  lark_cli_config:
+    driver: local

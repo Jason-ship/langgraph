@@ -1,0 +1,45 @@
+# .editorconfig — https://editorconfig.org
+# 跨编辑器统一基础格式。构建根在 novelfactory/，本文件放项目根覆盖全树。
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.{py,pyx,pyi}]
+# 与 ruff line-length=88、target-version=py310 对齐
+max_line_length = 88
+
+[*.{yml,yaml}]
+indent_size = 2
+
+[*.{json,jsonc,json5}]
+indent_size = 2
+
+[*.{toml,cfg,ini}]
+indent_size = 2
+
+[*.{md,markdown}]
+# markdown 保留行尾空格（两空格软换行）
+trim_trailing_whitespace = false
+max_line_length = off
+
+[*.{js,ts,jsx,tsx,mjs,cjs}]
+indent_size = 2
+max_line_length = 100
+
+[Makefile]
+# Makefile 必须用 tab
+indent_style = tab
+
+[*.{sh,bash}]
+indent_size = 2
+end_of_line = lf
+
+[Dockerfile]
+indent_size = 4

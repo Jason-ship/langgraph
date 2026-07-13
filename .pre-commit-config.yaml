@@ -1,0 +1,45 @@
+# .pre-commit-config.yaml — NovelFactory LangGraph
+# 安装：pip install pre-commit && pre-commit install
+# 手动跑：pre-commit run --all-files（等价于 novelfactory/ 下 make validate 的核心子集）
+# 钩子实现的规则与 .cursorrules / CLAUDE.md 一致，依赖 novelfactory/pyproject.toml 的 ruff/mypy 配置。
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
+      - id: end-of-file-fixer
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+      - id: check-toml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=500]
+      - id: detect-private-key
+      - id: check-case-conflict
+      - id: mixed-line-ending
+        args: [--fix=lf]
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    # ruff 版本需与 novelfactory/pyproject.toml [project.optional-dependencies].dev 的 ruff 上界兼容
+    rev: v0.15.18
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+        files: ^novelfactory/src/.*\.py$
+      - id: ruff-format
+        files: ^novelfactory/src/.*\.py$
+
+  # mypy 放最后：最慢，且需项目依赖已安装。
+  # 本地钩子从构建根运行，复用 pyproject.toml 的 strict + 覆盖配置。
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy (novelfactory/src)
+        entry: bash -c 'cd novelfactory && mypy src/ --ignore-missing-imports --check-untyped-defs'
+        language: system
+        types: [python]
+        files: ^novelfactory/src/.*\.py$
+        pass_filenames: false
