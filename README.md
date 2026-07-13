@@ -9,6 +9,27 @@
 [![LangGraph](https://img.shields.io/badge/LangGraph-1.1.0-green.svg)](https://github.com/langchain-ai/langgraph)
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED.svg)](https://docs.docker.com/compose/)
 
+## 技术演进
+
+这个项目经历了三代技术栈迭代，最终选择 LangGraph 作为编排框架：
+
+| 版本 | 技术栈 | 优点 | 痛点 |
+|------|--------|------|------|
+| v1-v3 OpenClaw | 自研 Agent 编排框架 | 完全可控，灵活度高 | 可维护性差，状态管理混乱，调试困难 |
+| v4-v5 Dify | Dify 工作流平台 | 可视化编排，上手快 | 复杂逻辑表达能力弱，无法实现多轮辩论和质量分级路由 |
+| v6+ LangGraph | LangGraph + FastAPI | 状态机清晰，检查点持久化，子图编译，interrupt 人机交互 | 学习曲线陡，但可读性和可维护性远超前两代 |
+
+**为什么最终选择 LangGraph：**
+
+试过自研框架（OpenClaw），也试过可视化平台（Dify），最终发现 LangGraph 是目前唯一能同时满足以下需求的框架：
+- **复杂状态机** - 15+ 节点的条件路由，不是简单的线性流水线
+- **检查点持久化** - PostgreSQL 存储，支持中断恢复和时间旅行
+- **子图编译** - 5 个 Crew 子图独立编译，父图统一管理持久化
+- **interrupt 人机交互** - 标准的 HIL 中断，等待人工审核后继续
+- **SSE 流式** - astream_events v2，实时推送写作进度和评分
+
+代码可读性是三代中最高的--每个节点的输入输出、状态变更、路由条件都显式声明，新人能在一天内理解整个创作管线。
+
 ## 创作流程
 
 输入一句话创意，系统自动完成从设定到成稿的全流程。Main Supervisor 作为中央编排器，根据 `current_phase` 在 5 个阶段间切换：
