@@ -68,7 +68,7 @@ MAX_SUPERVISOR_ITERATIONS = 20  # Supervisor 循环安全上限
 
 RECURSION_LIMIT = 5000  # 根图递归限制
 SUBGRAPH_RECURSION_LIMIT = 200  # 子图递归限制（writing/media/sync/setup）
-FALLBACK_TARGET_CHAPTERS = 600  # 默认目标章节数
+FALLBACK_TARGET_CHAPTERS = 1000  # 默认目标章节数（300万字）
 MIN_DISPLAY_TEXT_LENGTH = 20  # 最小显示文本长度
 DISPLAY_TEXT_MAX_LENGTH = 2000  # 最大显示文本长度
 COMPRESS_KEEP_RECENT = 5  # 压缩保留最近消息数（Supervisor 消息压缩）
