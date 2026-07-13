@@ -10,8 +10,11 @@
 
 FROM python:3.12-slim
 
+ARG APP_VERSION=7.8.0
+ENV NOVELFACTORY_VERSION=${APP_VERSION}
+
 LABEL org.opencontainers.image.title="NovelFactory LangGraph"
-LABEL org.opencontainers.image.version="6.1.0"
+LABEL org.opencontainers.image.version="${APP_VERSION}"
 LABEL org.opencontainers.image.description="AI Novel Creation System - Multi-Agent Architecture"
 
 WORKDIR /app
