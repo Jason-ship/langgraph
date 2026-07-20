@@ -786,7 +786,7 @@ docker compose -p langgraph down -v
 ```bash
 # 基础健康检查（返回状态+版本+tools-proxy状态）
 curl http://localhost:8123/health
-# {"status":"ok","version":"7.8.0","tools_proxy":"ok"}
+# {"status":"ok","version":"8.0.0","tools_proxy":"ok"}
 
 # 就绪检查（检查数据库连接）
 curl http://localhost:8123/ready

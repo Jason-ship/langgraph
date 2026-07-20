@@ -56,7 +56,7 @@ class Settings(BaseSettings):
 
     # ── Version (唯一源) ──────────────────────────────────────────────────────
     APP_VERSION: str = Field(
-        default="7.8.0",
+        default="8.0.0",
         validation_alias="NOVELFACTORY_VERSION",
         description="应用版本号，通过 NOVELFACTORY_VERSION 环境变量或 APP_VERSION 覆盖",
     )

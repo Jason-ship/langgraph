@@ -66,7 +66,7 @@ class TestHealth:
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "ok"
-        assert data["version"] == "7.8.0"
+        assert data["version"] == "8.0.0"
 
     def test_ready_returns_ready(self):
         resp = _get("/ready")

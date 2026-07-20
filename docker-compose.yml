@@ -160,7 +160,7 @@ services:
       AUDIT_LOG_ENABLED: ${AUDIT_LOG_ENABLED:-true}
       NOVELFACTORY_LOG_PATH: /data/logs/novelfactory.log
       NOVELFACTORY_ENV: ${NOVELFACTORY_ENV:-development}
-      NOVELFACTORY_VERSION: ${NOVELFACTORY_VERSION:-7.8.0}
+      NOVELFACTORY_VERSION: ${NOVELFACTORY_VERSION:-8.0.0}
       LOG_FORMAT: ${LOG_FORMAT:-json}
       # Business defaults
       CHAPTER_MIN_WORD_COUNT: "1500"

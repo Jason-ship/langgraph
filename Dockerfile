@@ -13,7 +13,7 @@
 # ============================================================================
 FROM python:3.12-slim AS builder
 
-ARG APP_VERSION=7.8.0
+ARG APP_VERSION=8.0.0
 
 LABEL org.opencontainers.image.title="NovelFactory LangGraph"
 LABEL org.opencontainers.image.version="${APP_VERSION}"
@@ -51,7 +51,7 @@ RUN uv pip install --system --no-cache hatchling \
 # ============================================================================
 FROM python:3.12-slim
 
-ARG APP_VERSION=7.8.0
+ARG APP_VERSION=8.0.0
 ENV NOVELFACTORY_VERSION=${APP_VERSION}
 
 LABEL org.opencontainers.image.title="NovelFactory LangGraph"
