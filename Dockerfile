@@ -110,6 +110,10 @@ RUN npm install -g pm2@latest
 # Copy installed Python packages from builder stage
 COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 
+# Copy Python CLI entry points from builder stage (uvicorn is needed for CMD)
+# Note: uvicorn entry point sits in /usr/local/bin and is not part of site-packages
+COPY --from=builder /usr/local/bin/uvicorn /usr/local/bin/uvicorn
+
 # Copy application source from builder stage
 COPY --from=builder /app/src ./src
 
