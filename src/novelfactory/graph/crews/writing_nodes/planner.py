@@ -17,8 +17,8 @@ from novelfactory.config.llm import get_worker_llm
 logger = get_logger(__name__)
 
 
-def chapter_planner_node(state: dict) -> dict[str, Any]:
-    """Plan the next chapter before writing.
+async def chapter_planner_node(state: dict) -> dict[str, Any]:
+    """Plan the next chapter before writing (async).
 
     Invokes the planner agent with:
       - Story outline, character setting, previous chapter summary
@@ -51,7 +51,7 @@ def chapter_planner_node(state: dict) -> dict[str, Any]:
     }
 
     planner_agent = create_chapter_planner_agent(get_worker_llm())
-    result = planner_agent.invoke(planner_input)
+    result = await planner_agent.ainvoke(planner_input)
     chapter_plan = result.get("chapter_plan", {})
 
     if chapter_plan:

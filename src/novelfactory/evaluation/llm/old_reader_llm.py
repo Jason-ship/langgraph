@@ -14,7 +14,7 @@ from typing import Any
 
 from langchain_core.language_models import BaseChatModel
 
-from novelfactory.agents.infra.retry import llm_call_with_retry
+from novelfactory.agents.infra.async_retry import async_llm_call_with_retry
 from novelfactory.config.constants import resolve_genre
 from novelfactory.evaluation.llm._shared import (
     clamp,
@@ -242,7 +242,7 @@ def _parse_response(raw: str) -> LLMOldReaderResult:
     )
 
 
-def llm_old_reader_analysis(
+async def llm_old_reader_analysis(
     chapter_text: str,
     genre: str | None = None,
     prev_summary: str = "",
@@ -278,7 +278,7 @@ def llm_old_reader_analysis(
 
     try:
         prompt = _build_prompt(chapter_text, genre=genre, prev_summary=prev_summary)
-        response = llm_call_with_retry(
+        response = await async_llm_call_with_retry(
             caller_llm, prompt, step_name="llm_old_reader", retry_policy="reviewer"
         )
         raw = response.content if hasattr(response, "content") else str(response)

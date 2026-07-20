@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
-from novelfactory.agents.infra import llm_call_with_retry
+from novelfactory.agents.infra import async_llm_call_with_retry
 from novelfactory.evaluation.schemas import (
     AttemptInfo,
     CrossChapterSignals,
@@ -187,7 +187,7 @@ class CalibrationRunner:
             raise ValueError("reference_set 不能为空")
         self._reference = reference_set
 
-    def run(self, reviewer_llm) -> CalibrationReport:
+    async def run(self, reviewer_llm) -> CalibrationReport:
         """用当前 LLM 重新评审校准集，与基准分对比。
 
         Args:
@@ -201,7 +201,7 @@ class CalibrationRunner:
         details: list[tuple[int, float, float]] = []
 
         for sample in self._reference:
-            current = self._evaluate(sample, reviewer_llm)
+            current = await self._evaluate(sample, reviewer_llm)
             deviation = current - sample.baseline_score
             deviations.append(deviation)
             details.append((sample.chapter_index, sample.baseline_score, current))
@@ -217,7 +217,7 @@ class CalibrationRunner:
             details=details,
         )
 
-    def _evaluate(self, sample: CalibrationSample, reviewer_llm) -> float:
+    async def _evaluate(self, sample: CalibrationSample, reviewer_llm) -> float:
         """对单个样本做快速评分（仅四维评分，跳过完整辩论）。"""
         prompt = (
             f"请对以下章节进行四维评分，仅输出 JSON：\n"
@@ -226,7 +226,7 @@ class CalibrationRunner:
             f"## 章节内容\n{sample.chapter_text[:3000]}"
         )
         try:
-            response = llm_call_with_retry(
+            response = await async_llm_call_with_retry(
                 reviewer_llm, prompt, step_name="calibration_eval"
             )
             raw = response.content if hasattr(response, "content") else str(response)

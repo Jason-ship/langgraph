@@ -26,8 +26,8 @@ logger = get_logger(__name__)
 # ── Node: chapter_refiner ─────────────────────────────────────────────────────
 
 
-def _chapter_refiner_node(state: BaseCrewState) -> dict[str, Any]:
-    """Refine chapter based on review feedback.
+async def _chapter_refiner_node(state: BaseCrewState) -> dict[str, Any]:
+    """Refine chapter based on review feedback (async).
 
     v7.0: 定向段落修复 — 从 unified verdict_result 读取反馈，
           refiner agent 只输出需要修改的段落，程序化合并回原文。
@@ -127,10 +127,11 @@ def _chapter_refiner_node(state: BaseCrewState) -> dict[str, Any]:
 
     # v7.8-fix: 短文本自动重试 — 和 chapter_writer 同样的重试保护。
     # 最多重试 2 次（共 3 次尝试），每次注入更强的"必须完整输出"指令。
+    # v7.8: async — 使用 agent.ainvoke 避免阻塞事件循环。
     min_refiner_length = 500  # 润色输出至少 500 字才有意义
     refined_chapter = ""
     for attempt in range(1, 4):
-        result = refiner_agent.invoke(refiner_input)
+        result = await refiner_agent.ainvoke(refiner_input)
         refined_cr = result.get("crew_result", {})
         refined_chapter = refined_cr.get("refined_chapter", "")
         text_len = len(refined_chapter)

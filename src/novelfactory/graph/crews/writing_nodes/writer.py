@@ -51,8 +51,8 @@ def _format_chapter_plan(plan: dict) -> str:
     return "\n".join(parts)
 
 
-def _chapter_writer_node(state: BaseCrewState) -> dict[str, Any]:
-    """Write chapter draft. Returns plain dict — routing done by verdict_router."""
+async def _chapter_writer_node(state: BaseCrewState) -> dict[str, Any]:
+    """Write chapter draft (async). Returns plain dict — routing done by verdict_router."""
     cr: dict[str, Any] = state.get("crew_result", {})
     # v5.9 P0-fix: Send 并行分发时 state.current_chapter 为权威来源，
     # crew_result.current_chapter_number 仅作 fallback（顺序写作兼容）
@@ -201,8 +201,9 @@ def _chapter_writer_node(state: BaseCrewState) -> dict[str, Any]:
     chapter_draft = ""
     # v6.0 P0-fix: 短文本自动重试 — LLM API 降级/挂掉/解析失败时重试。
     # 最多重试 2 次（共 3 次尝试），每次注入更强的"必须输出完整章节"指令。
+    # v7.8: async — 使用 agent.ainvoke 避免阻塞事件循环。
     for attempt in range(1, 4):  # 1-based for logging clarity
-        result = writer_agent.invoke(writer_input)
+        result = await writer_agent.ainvoke(writer_input)
         chapter_draft = result.get("crew_result", {}).get("chapter_draft", "")
         text_len = len(chapter_draft)
 

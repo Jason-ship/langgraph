@@ -15,7 +15,7 @@ import json
 
 from langchain_core.language_models import BaseChatModel
 
-from novelfactory.agents.infra import get_logger, llm_call_with_retry
+from novelfactory.agents.infra import async_llm_call_with_retry, get_logger
 from novelfactory.evaluation.debate.parser import (
     parse_markdown_sections,
     parse_rebuttal,
@@ -61,7 +61,7 @@ class InformedDebateEngine:
         5. 融合产出 DebateReport
     """
 
-    def run(
+    async def run(
         self,
         chapter_text: str,
         genre: str,
@@ -106,7 +106,7 @@ class InformedDebateEngine:
         reviews: dict[str, PerspectiveReview] = {}
         for role in speaker_order:
             if role == "editor":
-                reviews["editor"] = self._editor_review(
+                reviews["editor"] = await self._editor_review(
                     chapter_text,
                     genre,
                     genre_scoring_guide,
@@ -124,7 +124,7 @@ class InformedDebateEngine:
                         strengths=[],
                         suggestions="",
                     )
-                reviews["reader"] = self._reader_review(
+                reviews["reader"] = await self._reader_review(
                     chapter_text,
                     genre,
                     genre_scoring_guide,
@@ -137,7 +137,7 @@ class InformedDebateEngine:
             elif role == "critic":
                 ed_review = reviews.get("editor")
                 rd_review = reviews.get("reader")
-                reviews["critic"] = self._critic_review(
+                reviews["critic"] = await self._critic_review(
                     chapter_text,
                     genre,
                     genre_scoring_guide,
@@ -186,7 +186,7 @@ class InformedDebateEngine:
 
             for role in rebuttal_order:
                 if role == "editor":
-                    ed_rebuttal = self._editor_rebuttal(
+                    ed_rebuttal = await self._editor_rebuttal(
                         round_num,
                         editor_review,
                         reader_review,
@@ -196,7 +196,7 @@ class InformedDebateEngine:
                     )
                     editor_rebuttals.append(ed_rebuttal)
                 elif role == "reader":
-                    rd_rebuttal = self._reader_rebuttal(
+                    rd_rebuttal = await self._reader_rebuttal(
                         round_num,
                         reader_review,
                         editor_rebuttals,
@@ -205,7 +205,7 @@ class InformedDebateEngine:
                     )
                     reader_rebuttals.append(rd_rebuttal)
                 elif role == "critic":
-                    cr_rebuttal = self._critic_rebuttal(
+                    cr_rebuttal = await self._critic_rebuttal(
                         round_num,
                         critic_review,
                         editor_rebuttals,
@@ -269,7 +269,7 @@ class InformedDebateEngine:
 
     # ========== 内部方法 ==========
 
-    def _editor_review(
+    async def _editor_review(
         self,
         chapter_text: str,
         genre: str,
@@ -306,7 +306,7 @@ class InformedDebateEngine:
         )
 
         prompt = "\n".join(prompt_parts)
-        response = llm_call_with_retry(llm, prompt, step_name="editor_review_informed")
+        response = await async_llm_call_with_retry(llm, prompt, step_name="editor_review_informed")
         raw = response.content if hasattr(response, "content") else str(response)
         parsed = parse_markdown_sections(raw)
 
@@ -323,7 +323,7 @@ class InformedDebateEngine:
             suggestions=normalize_paragraph_refs(parsed.get("suggestions", "")),
         )
 
-    def _reader_review(
+    async def _reader_review(
         self,
         chapter_text: str,
         genre: str,
@@ -372,7 +372,7 @@ class InformedDebateEngine:
         )
 
         prompt = "\n".join(prompt_parts)
-        response = llm_call_with_retry(llm, prompt, step_name="reader_review_informed")
+        response = await async_llm_call_with_retry(llm, prompt, step_name="reader_review_informed")
         raw = response.content if hasattr(response, "content") else str(response)
         parsed = parse_markdown_sections(raw)
 
@@ -391,7 +391,7 @@ class InformedDebateEngine:
 
     # ── v7.3: Critic 评审 ─────────────────────────────────────────────
 
-    def _critic_review(
+    async def _critic_review(
         self,
         chapter_text: str,
         genre: str,
@@ -445,7 +445,7 @@ class InformedDebateEngine:
         )
 
         prompt = "\n".join(prompt_parts)
-        response = llm_call_with_retry(llm, prompt, step_name="critic_review_informed")
+        response = await async_llm_call_with_retry(llm, prompt, step_name="critic_review_informed")
         raw = response.content if hasattr(response, "content") else str(response)
         parsed = parse_markdown_sections(raw)
 
@@ -467,7 +467,7 @@ class InformedDebateEngine:
             suggestions=parsed.get("改进建议", ""),
         )
 
-    def _critic_rebuttal(
+    async def _critic_rebuttal(
         self,
         round_num: int,
         critic_review: PerspectiveReview,
@@ -498,7 +498,7 @@ class InformedDebateEngine:
             )
 
         prompt = "\n".join(prompt_parts)
-        response = llm_call_with_retry(
+        response = await async_llm_call_with_retry(
             llm, prompt, step_name=f"critic_rebuttal_r{round_num}"
         )
         raw = response.content if hasattr(response, "content") else str(response)
@@ -517,7 +517,7 @@ class InformedDebateEngine:
             has_dissent=parsed.get("has_dissent", True),
         )
 
-    def _editor_rebuttal(
+    async def _editor_rebuttal(
         self,
         round_num: int,
         editor_review: PerspectiveReview,
@@ -549,7 +549,7 @@ class InformedDebateEngine:
         ]
         prompt = "\n".join(prompt_parts)
 
-        response = llm_call_with_retry(
+        response = await async_llm_call_with_retry(
             llm, prompt, step_name=f"editor_rebuttal_r{round_num}"
         )
         raw = response.content if hasattr(response, "content") else str(response)
@@ -569,7 +569,7 @@ class InformedDebateEngine:
             has_dissent=parsed["has_dissent"],
         )
 
-    def _reader_rebuttal(
+    async def _reader_rebuttal(
         self,
         round_num: int,
         reader_review: PerspectiveReview,
@@ -599,7 +599,7 @@ class InformedDebateEngine:
         ]
         prompt = "\n".join(prompt_parts)
 
-        response = llm_call_with_retry(
+        response = await async_llm_call_with_retry(
             llm, prompt, step_name=f"reader_rebuttal_r{round_num}"
         )
         raw = response.content if hasattr(response, "content") else str(response)

@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING
 
 from langchain_core.language_models import BaseChatModel
 
-from novelfactory.agents.infra import get_logger, llm_call_with_retry
+from novelfactory.agents.infra import async_llm_call_with_retry, get_logger
 from novelfactory.agents.infra.serialization import validate_json_output
 from novelfactory.config.constants import (
     VERDICT_ITERATION_BONUS_MAX,
@@ -173,7 +173,7 @@ class VerdictEngine:
         self._feedback_builder = FeedbackBuilder()
         self._debate_engine = InformedDebateEngine()
 
-    def evaluate(
+    async def evaluate(
         self,
         chapter_text: str,
         genre: str,
@@ -184,10 +184,12 @@ class VerdictEngine:
         reviewer_llm: BaseChatModel,
         debate_llm: BaseChatModel,
     ) -> VerdictResult:
-        """执行完整评审流程，返回统一决议。
+        """执行完整评审流程，返回统一决议（async）。
 
         v7.1：新增 LLM 语义分析步骤（老书虫 + AI味），
         与程序化分析并行互补。
+
+        v7.8: 全 async — LLM 调用不再阻塞事件循环。
 
         Args:
             chapter_text: 章节文本
@@ -225,13 +227,14 @@ class VerdictEngine:
         # 2. LLM 语义分析（并行轨道 — LLM 老书虫 + LLM AI味）
         # v7.2: 多模型分层支持 — 不同 LLM 执行不同维度的分析
         # 参考 Fiction_Eval 实证：Claude 擅长宏观, DeepSeek 擅长中观, GPT-4o 擅长微观
-        llm_or = llm_old_reader_analysis(
+        # v7.8: async — await 所有 LLM 调用
+        llm_or = await llm_old_reader_analysis(
             chapter_text=chapter_text,
             genre=genre,
             prev_summary=prev_summary,
             llm=reviewer_llm,
         )
-        llm_ais = llm_ai_style_analysis(
+        llm_ais = await llm_ai_style_analysis(
             chapter_text=chapter_text,
             genre=genre,
             programmatic_metrics=programmatic.ai_style_metrics.to_brief_string(),
@@ -242,7 +245,7 @@ class VerdictEngine:
         decay_penalty = _detect_quality_decay(chapter_text)
 
         # 3. 知情辩论（LLM，注入程序化结果 + LLM语义分析）
-        debate = self._run_debate(
+        debate = await self._run_debate(
             chapter_text,
             genre,
             genre_scoring_guide,
@@ -253,7 +256,7 @@ class VerdictEngine:
         )
 
         # 4. 四维 LLM 评分（只调一次！）
-        four_dim = self._run_four_dim_review(
+        four_dim = await self._run_four_dim_review(
             chapter_text,
             genre,
             genre_scoring_guide,
@@ -294,7 +297,7 @@ class VerdictEngine:
 
     # ========== 内部方法 ==========
 
-    def _run_debate(
+    async def _run_debate(
         self,
         chapter_text: str,
         genre: str,
@@ -304,9 +307,9 @@ class VerdictEngine:
         cross_chapter: CrossChapterSignals,
         llm: BaseChatModel,
     ) -> DebateReport:
-        """执行知情辩论。"""
+        """执行知情辩论（async）。"""
         try:
-            return self._debate_engine.run(
+            return await self._debate_engine.run(
                 chapter_text=chapter_text,
                 genre=genre,
                 genre_scoring_guide=genre_scoring_guide,
@@ -326,7 +329,7 @@ class VerdictEngine:
                 debate_transcript=f"辩论失败: {e}",
             )
 
-    def _run_four_dim_review(
+    async def _run_four_dim_review(
         self,
         chapter_text: str,
         genre: str,
@@ -336,12 +339,13 @@ class VerdictEngine:
         llm: BaseChatModel,
         use_close_prompt: bool = False,
     ) -> FourDimReviewResult:
-        """执行四维 LLM 评分。
+        """执行四维 LLM 评分（async）。
 
         v7.3: 嵌入一致性检查清单（作为内部推理引导），输出证据链。
         v7.4: 新增 use_close_prompt 参数 — 两步模式：
           步骤 1（use_close_prompt=True）: SCORE_ONLY_PROMPT（仅 JSON 裸分）
           步骤 2（可选）: ANALYSIS_PROMPT（调试用）
+        v7.8: async — LLM 调用不再阻塞事件循环。
         """
         from novelfactory.evaluation.llm.prompts import (
             CONSISTENCY_CHECKLIST,
@@ -354,7 +358,7 @@ class VerdictEngine:
         # ── Close Prompt 模式: 先拿裸分（参考 Reference-Guided Verdict 2024）──
         if use_close_prompt:
             score_prompt = SCORE_ONLY_PROMPT
-            score_response = llm_call_with_retry(
+            score_response = await async_llm_call_with_retry(
                 llm, score_prompt, step_name="four_dim_score_only"
             )
             score_raw = (
@@ -430,7 +434,7 @@ class VerdictEngine:
         prompt = "\n".join(prompt_parts)
 
         try:
-            response = llm_call_with_retry(llm, prompt, step_name="four_dim_review")
+            response = await async_llm_call_with_retry(llm, prompt, step_name="four_dim_review")
             raw = response.content if hasattr(response, "content") else str(response)
             result = self._parse_four_dim_response(raw)
             # v7.0: 归一化任何 "第N段" 引用为 [Pi]

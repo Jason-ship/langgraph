@@ -10,6 +10,7 @@ from novelfactory.agents.infra.circuit_breaker import (
 from novelfactory.agents.infra.helpers import (
     extract_ai_message_text,
     extract_fields_from_state,
+    make_retry_agent_ainvoke,
 )
 from novelfactory.agents.infra.llm_cache import LLMResponseCache, get_llm_cache
 from novelfactory.agents.infra.logger import get_logger
@@ -56,6 +57,7 @@ __all__ = [
     "count_tokens_dict",
     "extract_ai_message_text",
     "extract_fields_from_state",
+    "make_retry_agent_ainvoke",
     "get_crew_stream",
     "get_logger",
     "get_quota_status",

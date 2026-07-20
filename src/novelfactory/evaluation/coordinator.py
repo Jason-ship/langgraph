@@ -46,8 +46,8 @@ _DEFAULT_MAX_REFINE = 2
 _wall_tracker = WallTimeTracker()
 
 
-def verdict_engine_node(state: dict[str, Any]) -> dict[str, Any]:
-    """verdict_engine 图节点 — 替代 _chapter_reviewer_node。
+async def verdict_engine_node(state: dict[str, Any]) -> dict[str, Any]:
+    """verdict_engine 图节点 (async) — 替代 _chapter_reviewer_node。
 
     执行完整评审流程：
         程序化分析 → 知情辩论 → 四维LLM评分 → 融合计算 → VerdictResult
@@ -101,10 +101,10 @@ def verdict_engine_node(state: dict[str, Any]) -> dict[str, Any]:
     reviewer_llm = get_reviewer_llm()
     debate_llm = get_worker_llm()
 
-    # 执行评审
+    # 执行评审 (async)
     engine = VerdictEngine()
     try:
-        verdict = engine.evaluate(
+        verdict = await engine.evaluate(
             chapter_text=chapter_draft,
             genre=genre,
             genre_scoring_guide=genre_scoring_guide,

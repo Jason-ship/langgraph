@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from novelfactory.agents.infra import get_logger, llm_call_with_retry
+from novelfactory.agents.infra import async_llm_call_with_retry, get_logger
 
 logger = get_logger(__name__)
 
@@ -56,8 +56,8 @@ def _build_corrector_prompt(
 """
 
 
-def corrector_node(state: dict[str, Any]) -> dict[str, Any]:
-    """纠偏器节点 — 当 rewrite 次数耗尽且分数低时注入意外事件。
+async def corrector_node(state: dict[str, Any]) -> dict[str, Any]:
+    """纠偏器节点 — 当 rewrite 次数耗尽且分数低时注入意外事件（async）。
 
     在 verdict_engine 路由到 REWRITE 前检查：如果已经 rewrite_exhausted，
     且分数低，则先生成意外事件修正后续大纲，再走 rewrite。
@@ -98,7 +98,7 @@ def corrector_node(state: dict[str, Any]) -> dict[str, Any]:
         from novelfactory.config.llm import get_worker_llm
 
         llm = get_worker_llm()
-        response = llm_call_with_retry(llm, prompt, step_name="corrector")
+        response = await async_llm_call_with_retry(llm, prompt, step_name="corrector")
         raw = response.content if hasattr(response, "content") else str(response)
         events = _parse_events(raw)
         logger.info("[纠偏器] 生成 %d 个意外事件", len(events))

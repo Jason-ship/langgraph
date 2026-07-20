@@ -1,13 +1,54 @@
 # ────────────────────────────────────────────────────────────────────────────
-# NovelFactory LangGraph — Production Dockerfile
+# NovelFactory LangGraph — Production Dockerfile (Multi-stage)
 #
 # Security-hardened build: Python 3.12-slim base, non-root user.
-# Single-stage with lark-cli for Feishu sync.
+# Multi-stage: builder compiles deps, runtime is minimal.
 #
 # Build:  docker build -t novelfactory-langgraph:latest .
 # Run:    docker compose -p langgraph up -d
 # ────────────────────────────────────────────────────────────────────────────
 
+# ============================================================================
+# Builder Stage — compile Python dependencies
+# ============================================================================
+FROM python:3.12-slim AS builder
+
+ARG APP_VERSION=7.8.0
+
+LABEL org.opencontainers.image.title="NovelFactory LangGraph"
+LABEL org.opencontainers.image.version="${APP_VERSION}"
+LABEL org.opencontainers.image.description="AI Novel Creation System - Multi-Agent Architecture"
+
+WORKDIR /app
+
+# Use China mirror for apt (faster than deb.debian.org)
+RUN sed -i 's|http://deb.debian.org/debian|https://mirrors.aliyun.com/debian|g' /etc/apt/sources.list.d/debian.sources 2>/dev/null \
+    || sed -i 's|http://deb.debian.org/debian|https://mirrors.aliyun.com/debian|g' /etc/apt/sources.list 2>/dev/null \
+    || true
+
+# Install build dependencies (gcc/libpq-dev for C extensions like psycopg, asyncpg)
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        gcc \
+        libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Python/uv mirror config (must be before any pip/uv install)
+ENV PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple \
+    UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+
+# Install uv for fast, reliable dependency resolution
+RUN pip install --no-cache-dir uv
+
+# Install project dependencies
+COPY pyproject.toml ./
+COPY src/ ./src
+RUN uv pip install --system --no-cache hatchling \
+    && uv pip install --system --no-cache .
+
+# ============================================================================
+# Runtime Stage — minimal image for production
+# ============================================================================
 FROM python:3.12-slim
 
 ARG APP_VERSION=7.8.0
@@ -24,8 +65,7 @@ RUN sed -i 's|http://deb.debian.org/debian|https://mirrors.aliyun.com/debian|g' 
     || sed -i 's|http://deb.debian.org/debian|https://mirrors.aliyun.com/debian|g' /etc/apt/sources.list 2>/dev/null \
     || true
 
-# Install runtime dependencies
-# - gcc/libpq-dev: build tools for C extensions (psycopg, asyncpg)
+# Install runtime dependencies only (no gcc/libpq-dev — strictly runtime)
 # - libpq5: runtime shared lib for postgres clients
 # - tini: proper init system (zombie reaping, signal forwarding)
 # - curl: for healthcheck
@@ -33,8 +73,6 @@ RUN sed -i 's|http://deb.debian.org/debian|https://mirrors.aliyun.com/debian|g' 
 # - redis-tools: redis-cli for the healthcheck script
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        gcc \
-        libpq-dev \
         libpq5 \
         tini \
         curl \
@@ -69,18 +107,11 @@ RUN LARK_CLI_DIR="/usr/local/lib/node_modules/@larksuite/cli" \
 # Install PM2 for process management
 RUN npm install -g pm2@latest
 
-# Python/uv mirror config (must be before any pip/uv install)
-ENV PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple \
-    UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+# Copy installed Python packages from builder stage
+COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 
-# Install uv for fast, reliable dependency resolution
-RUN pip install --no-cache-dir uv
-
-# Pre-install dependencies via pyproject.toml (all deps declared there with bounds)
-COPY pyproject.toml ./
-COPY src/ ./src
-RUN uv pip install --system --no-cache hatchling \
-    && uv pip install --system --no-cache .
+# Copy application source from builder stage
+COPY --from=builder /app/src ./src
 
 # Copy remaining deploy artifacts
 COPY deploy/scripts ./deploy/scripts

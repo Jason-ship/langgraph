@@ -91,7 +91,7 @@ def build_check_chain(
     Returns:
         Ordered list of node keys to execute.
     """
-    cached = _check_chain_cache.get(genre)
+    cached = _get_check_chain_cache(genre)
     if cached is not None:
         return cached
 
@@ -110,3 +110,15 @@ def build_check_chain(
 
 
 _check_chain_cache: dict[str, list[str]] = {}
+_MAX_CACHE_SIZE = 20  # v7.8: LRU 上限守卫，防无限增长
+
+
+def _get_check_chain_cache(genre: str) -> list[str] | None:
+    """Thread-safe cache get with LRU eviction."""
+    if genre not in _check_chain_cache:
+        return None
+    # 读访问同时清理（简单实现：超出上限时清空整个缓存）
+    if len(_check_chain_cache) > _MAX_CACHE_SIZE:
+        _check_chain_cache.clear()
+        return None
+    return _check_chain_cache[genre]

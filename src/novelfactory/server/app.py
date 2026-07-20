@@ -89,6 +89,24 @@ _app_lock = threading.Lock()
 # run metadata (ephemeral per-invocation) is kept in memory.
 _run_store: dict[str, list[dict]] = {}  # thread_id -> [run_info, ...] (ephemeral)
 
+# v7.8: 上限守卫 — 防止 _run_store 无限增长
+_MAX_RUN_STORE_ENTRIES = 1000  # 全局最大条目数
+_MAX_RUNS_PER_THREAD = 100     # 单线程最大运行记录数
+
+
+def _add_run_to_store(thread_id: str, run_info: dict) -> None:
+    """添加运行记录到 _run_store，自动触发守卫清理。"""
+    # 检查全局上限
+    total = sum(len(v) for v in _run_store.values())
+    if total >= _MAX_RUN_STORE_ENTRIES:
+        # 清空所有已完成运行记录
+        _run_store.clear()
+    # 检查单线程上限
+    runs = _run_store.setdefault(thread_id, [])
+    if len(runs) >= _MAX_RUNS_PER_THREAD:
+        runs.pop(0)  # FIFO — 丢弃最旧记录
+    runs.append(run_info)
+
 
 async def get_app() -> CompiledGraph:
     """Lazy-initialized compiled graph singleton (thread-safe)."""
@@ -186,8 +204,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         if DatabaseManager._instance is not None:
             DatabaseManager._instance.close()
             logger.info("[server] Database pool closed")
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("[server] Database pool close skipped: %s", exc)
 
     # ── Close Checkpointer (Postgres connection pool) ──────────────────────
     cp = get_checkpointer_instance()
@@ -262,9 +280,28 @@ try:
 except Exception:
     logger.debug("[server] CSRF middleware not available")
 
+# ── Request Logging Middleware (v7.8) ──────────────────────────────────────────
+try:
+    from novelfactory.middleware.request_logger import RequestLoggingMiddleware
+
+    app.add_middleware(RequestLoggingMiddleware)
+    logger.info("[server] Request logging middleware enabled")
+except Exception:
+    logger.debug("[server] Request logging middleware not available")
+
+# ── Rate Limit Middleware (v7.8) ───────────────────────────────────────────────
+try:
+    from novelfactory.middleware.rate_limit import RateLimitMiddleware
+
+    app.add_middleware(RateLimitMiddleware)
+    logger.info("[server] Rate limit middleware enabled")
+except Exception:
+    logger.debug("[server] Rate limit middleware not available")
+
 # v6.1: 统一从 settings 读取
+# v7.8: 默认值从 "*" 改为 "http://localhost:3000"（生产环境应设置具体域名）
 allowed_origins = os.environ.get(
-    "CORS_ALLOWED_ORIGINS", settings.CORS_ALLOWED_ORIGINS or "*"
+    "CORS_ALLOWED_ORIGINS", settings.CORS_ALLOWED_ORIGINS or "http://localhost:3000"
 ).split(",")
 app.add_middleware(
     CORSMiddleware,
@@ -356,6 +393,18 @@ async def get_ui(assistant_id: str) -> dict:
 async def favicon():
     """Handle favicon requests to avoid 404 in logs."""
     return JSONResponse(status_code=204)
+
+
+# ── Prometheus Metrics (v7.8) ─────────────────────────────────────────────────
+from fastapi.responses import PlainTextResponse  # noqa: E402
+
+
+@app.get("/metrics", include_in_schema=False, tags=["health"])
+async def metrics():
+    """Prometheus 格式的指标数据。"""
+    from novelfactory.server.metrics import generate_metrics
+
+    return PlainTextResponse(content=generate_metrics(), media_type="text/plain; charset=utf-8")
 
 
 # ── Main Entrypoint ────────────────────────────────────────────────────────────

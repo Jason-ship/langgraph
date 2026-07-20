@@ -61,22 +61,11 @@ class Settings(BaseSettings):
         description="应用版本号，通过 NOVELFACTORY_VERSION 环境变量或 APP_VERSION 覆盖",
     )
 
-    # ── LLM ─────────────────────────────────────────────────────────────────
+    # ── LLM (ARK API — 权威来源) ─────────────────────────────────────────
     ARK_API_KEY: str = Field(default="", description="火山引擎方舟 API Key")
     ARK_BASE_URL: str = Field(
         default="https://ark.cn-beijing.volces.com/api/coding/v3",
         description="火山引擎 Coding Plan OpenAI 兼容端点",
-    )
-    # Legacy keys (kept for backward compatibility)
-    DEEPSEEK_API_KEY: str = Field(default="", description="DeepSeek API密钥（旧）")
-    DEEPSEEK_BASE_URL: str = Field(
-        default="https://api.deepseek.com",
-        description="DeepSeek API 地址（旧）",
-    )
-    SILICONFLOW_API_KEY: str = Field(default="", description="硅基流动 API Key")
-    SILICONFLOW_BASE_URL: str = Field(
-        default="https://api.siliconflow.cn/v1",
-        description="硅基流动 API 地址",
     )
 
     # ── Database ───────────────────────────────────────────────────────────────
@@ -295,7 +284,7 @@ class Settings(BaseSettings):
 
     @property
     def is_production(self) -> bool:
-        return self.LANGSMITH_TRACING and bool(self.LANGSMITH_API_KEY)
+        return self.NOVELFACTORY_ENV == "production"
 
     @property
     def checkpoint_config(self) -> dict:

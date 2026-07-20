@@ -12,15 +12,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from novelfactory.agents.infra import get_logger, llm_call_with_retry
+from novelfactory.agents.infra import get_logger, async_llm_call_with_retry
 from novelfactory.evaluation.debate.parser import parse_markdown_sections
 from novelfactory.evaluation.debate.prompts import CRITIC_PRE_ASSESSMENT_PROMPT
 
 logger = get_logger(__name__)
 
 
-def critic_pre_assessment_node(state: dict[str, Any]) -> dict[str, Any]:
-    """Critic 前置大纲评估节点。
+async def critic_pre_assessment_node(state: dict[str, Any]) -> dict[str, Any]:
+    """Critic 前置大纲评估节点（async）。
 
     Args:
         state: writing_crew 状态，需含 chapter_plan, volume_info, story_outline 等
@@ -54,7 +54,7 @@ def critic_pre_assessment_node(state: dict[str, Any]) -> dict[str, Any]:
         from novelfactory.config.llm import get_reviewer_llm
 
         llm = get_reviewer_llm()
-        response = llm_call_with_retry(llm, prompt, step_name="critic_pre_assessment")
+        response = await async_llm_call_with_retry(llm, prompt, step_name="critic_pre_assessment")
         raw = response.content if hasattr(response, "content") else str(response)
         parsed = parse_markdown_sections(raw)
 

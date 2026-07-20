@@ -213,9 +213,11 @@ async def _create_run_impl(thread_id: str, run: RunRequest) -> Response:
     graph = await get_app()
     input_data = await _resolve_input_data(graph, config, run.input or {}, thread_id)
 
-    # Track the run
+    # Track the run — 使用上限守卫的 _add_run_to_store 替代直接 append
+    from novelfactory.server.app import _add_run_to_store
+
     run_info = {"run_id": run_id, "thread_id": thread_id, "status": "pending"}
-    _run_store.setdefault(thread_id, []).append(run_info)
+    _add_run_to_store(thread_id, run_info)
 
     if run.stream:
         return EventSourceResponse(

@@ -38,6 +38,39 @@ def make_retry_agent_invoke(module_name: str):
     return _retry_agent_invoke
 
 
+def make_retry_agent_ainvoke(module_name: str):
+    """Create a module-specific async ``_retry_agent_ainvoke`` function.
+
+    Async counterpart of ``make_retry_agent_invoke`` — wraps ``agent.ainvoke``
+    with ``async_llm_call_with_retry`` instead of the sync ``llm_call_with_retry``,
+    preventing event-loop blocking during LLM calls.
+
+    Args:
+        module_name: Prefix for step_name (e.g. "writing_agents", "setup_agents").
+
+    Returns:
+        An async ``_retry_agent_ainvoke(agent, input_dict, step_name) -> dict`` function.
+    """
+
+    async def _retry_agent_ainvoke(
+        agent: Any, input_dict: dict, step_name: str
+    ) -> dict:
+        """Async agent.ainvoke with timeout + exponential-backoff retry.
+
+        Falls back to ``{"messages": [], "crew_result": {}}`` on all failures.
+        """
+        from novelfactory.agents.infra.async_retry import async_llm_call_with_retry
+
+        return await async_llm_call_with_retry(
+            agent.ainvoke,
+            input_dict,
+            step_name=f"{module_name}.{step_name}",
+            fallback={"messages": [], "crew_result": {}},
+        )
+
+    return _retry_agent_ainvoke
+
+
 def _extract_from_state(state: dict, key: str, default: Any = "") -> Any:
     """Read `key` from `state`, supporting both flat and crew_result layouts."""
     if "crew_result" in state and isinstance(state.get("crew_result"), dict):
