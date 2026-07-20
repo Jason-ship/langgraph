@@ -124,6 +124,38 @@ def merge_quality_scores(old: dict[str, float] | None, new: dict[str, float] | N
     return merged
 
 
+def _add_chapters_compressed(
+    old: list[dict] | None, new: list[dict] | None
+) -> list[dict]:
+    """Chapter reducer with compression — append new chapters, compress old ones.
+
+    v6.0: Replaces operator.add to prevent unbounded checkpoint growth in 1000+
+    chapter novels. Keeps only the most recent N chapters full, compresses older
+    entries to chapter_summary only.
+    """
+    result = list(old or [])
+    if new:
+        result.extend(new)
+
+    from novelfactory.config.constants import COMPRESS_KEEP_RECENT_CHAPTERS
+
+    if len(result) > COMPRESS_KEEP_RECENT_CHAPTERS:
+        # Keep recent chapters full, compress older ones to summary-only
+        recent = result[-COMPRESS_KEEP_RECENT_CHAPTERS:]
+        old_compressed = result[:-COMPRESS_KEEP_RECENT_CHAPTERS]
+        compressed = []
+        for ch in old_compressed:
+            if isinstance(ch, dict):
+                compressed.append({
+                    "chapter_number": ch.get("chapter_number", "?"),
+                    "chapter_summary": (ch.get("chapter_summary", "") or "")[:200],
+                })
+            else:
+                compressed.append(ch)
+        return compressed + recent
+    return result
+
+
 __all__ = [
     "add_messages",
     "merge_todos",
@@ -131,4 +163,5 @@ __all__ = [
     "merge_delegations",
     "merge_artifacts",
     "merge_quality_scores",
+    "_add_chapters_compressed",
 ]
