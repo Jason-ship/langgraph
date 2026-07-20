@@ -221,6 +221,11 @@ class Settings(BaseSettings):
     FEISHU_VERIFICATION_TOKEN: str = Field(default="", description="飞书回调验证 Token")
     FEISHU_ENCRYPT_KEY: str = Field(default="", description="飞书回调加密 Key")
 
+    # ── Channels (Feishu WebSocket) ────────────────────────────────────────────
+    CHANNELS_ENABLED: bool = Field(
+        default=True, description="是否启用渠道层（FeishuChannel WebSocket）"
+    )
+
     # ── CORS ─────────────────────────────────────────────────────────────────
     CORS_ALLOWED_ORIGINS: str = Field(
         default="*", description="CORS 允许的源（逗号分隔）"

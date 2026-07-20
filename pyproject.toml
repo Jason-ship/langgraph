@@ -59,8 +59,8 @@ dependencies = [
     "networkx>=3.0,<4",
 
     # ── Numerical & Signal Processing (Emotion Arc) ───────────────────────
-    "numpy>=1.24.0,<2",
-    "scipy>=1.10.0,<2",
+    "numpy>=1.24.0,<3",
+    "scipy>=1.10.0,<3",
 
     # ── Web Framework ─────────────────────────────────────────────────────
     "fastapi>=0.110.0,<1",
@@ -72,6 +72,12 @@ dependencies = [
     # ── Configuration ───────────────────────────────────────────────────────
     "pydantic>=2.7.4,<3",
     "pydantic-settings>=2.2.0,<3",
+
+    # ── Feishu Channel (WebSocket SDK) ──────────────────────────────────────
+    "lark-oapi>=1.4.0,<2",
+
+    # ── Community Search Tools ───────────────────────────────────────────────
+    "duckduckgo_search>=6.0.0,<7",
 
     # ── CLI ─────────────────────────────────────────────────────────────────
     "click>=8.1.0,<9",

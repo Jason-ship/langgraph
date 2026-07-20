@@ -1,42 +1,73 @@
-# ==============================================================================
-# 消息分类与去重工具 — 借鉴 TradingAgents cli/utils.py classify_message_type 模式
-# ==============================================================================
+"""Message content extraction and conversion utilities.
+
+Migrated from DeerFlow utils/messages.py.
+"""
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
+ORIGINAL_USER_CONTENT_KEY = "original_user_content"
 
-def classify_message_type(msg: Any) -> tuple[str, str]:
-    """将 LangChain 消息分类为显示类型。
 
-    借鉴 TradingAgents: 消息按角色分类 → User/Agent/Data/System/Control
+def message_content_to_text(content: Any) -> str:
+    """Extract text from LangChain message content shapes.
+
+    Handles plain strings, lists of content blocks, and nested dicts.
     """
-    msg_type = (
-        getattr(msg, "type", "") if hasattr(msg, "type") else str(type(msg).__name__)
-    )
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, str):
+                parts.append(item)
+            elif isinstance(item, dict):
+                text = item.get("text")
+                if isinstance(text, str):
+                    parts.append(text)
+        return "\n".join(part for part in parts if part)
+    return str(content)
 
-    mapping = {
-        "human": ("Human", "User"),
-        "ai": ("AI", "Agent"),
-        "tool": ("Tool", "Data"),
-        "system": ("System", "System"),
-    }
-    return mapping.get(msg_type, (msg_type, "Info"))
+
+def message_to_text(message: Any, *, text_attribute_fallback: bool = False) -> str:
+    """Extract display text from a whole message (BaseMessage or dict-shaped).
+
+    Reads content from either an attribute (BaseMessage) or a mapping key,
+    then walks the mixed content shapes.
+    """
+    content = message.get("content") if isinstance(message, Mapping) else getattr(message, "content", None)
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, Mapping):
+                text = block.get("text")
+                if isinstance(text, str):
+                    parts.append(text)
+                else:
+                    nested = block.get("content")
+                    if isinstance(nested, str):
+                        parts.append(nested)
+        return "".join(parts)
+    if isinstance(content, Mapping):
+        for key in ("text", "content"):
+            value = content.get(key)
+            if isinstance(value, str):
+                return value
+    if text_attribute_fallback:
+        text = getattr(message, "text", None)
+        if isinstance(text, str):
+            return text
+    return ""
 
 
-def deduplicate_messages(messages: list[dict], *, key_fn: Any = None) -> list[dict]:
-    """按 id 去重消息列表，保留最后出现的。"""
-    seen: set[str] = set()
-    result: list[dict] = []
-    for msg in reversed(messages):
-        msg_id = msg.get("id", "")
-        if key_fn:
-            msg_id = key_fn(msg)
-        if msg_id and msg_id in seen:
-            continue
-        if msg_id:
-            seen.add(msg_id)
-        result.append(msg)
-    result.reverse()
-    return result
+__all__ = [
+    "message_content_to_text",
+    "message_to_text",
+    "ORIGINAL_USER_CONTENT_KEY",
+]

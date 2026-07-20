@@ -1,4 +1,8 @@
-"""Feishu (Lark) event handler (synchronous).
+"""Feishu (Lark) event handler (synchronous) — FALLBACK MODE.
+
+DEPRECATED in v7.0: Use the new channels layer (FeishuChannel WebSocket)
+for real-time message receiving. This module is kept as a fallback for
+environments where the WebSocket channel cannot be used.
 
 Consumes stdout NDJSON from `lark-cli event consume` via pipeline:
 
@@ -6,10 +10,8 @@ Consumes stdout NDJSON from `lark-cli event consume` via pipeline:
 
 All functions are synchronous and safe to use with interrupt recovery.
 
-v6.5: Message sending routed through FeishuToolkit → httpx → tools-proxy,
-delegating to feishu_api.send_lark_message().
-
-v6.1 P1-7: 修复 asyncio.run 误用 — 使用模块级事件循环避免每次创建新循环。
+v6.5: Message sending routed through FeishuToolkit → httpx → tools-proxy.
+v7.0: DEPRECATED — use novelfactory.channels.feishu.FeishuChannel instead.
 """
 
 from __future__ import annotations

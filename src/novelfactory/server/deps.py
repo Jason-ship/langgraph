@@ -62,3 +62,27 @@ def get_run_store() -> dict:
     from novelfactory.server.app import _run_store
 
     return _run_store
+
+
+# ── 通用依赖注入工厂（参考 DeerFlow deps.py _require 模式） ──────────────
+
+from fastapi import HTTPException, Request
+
+
+def _require(attr: str, label: str):
+    """工厂函数，生成 FastAPI 依赖，从 app.state 获取单例。
+
+    使用方式:
+        from fastapi import Depends
+        get_channel_service = _require("channel_service", "Channel service")
+
+        @router.get("/channels")
+        async def list_channels(service=Depends(get_channel_service)):
+            ...
+    """
+    async def dependency(request: Request):
+        value = getattr(request.app.state, attr, None)
+        if value is None:
+            raise HTTPException(status_code=503, detail=f"{label} not available")
+        return value
+    return dependency

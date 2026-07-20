@@ -131,12 +131,53 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     store = getattr(app.state.graph, "store", None)
     if store:
         await cleanup_abnormal_crons(store)
+
+    # ── 启动渠道服务 ──────────────────────────────────────────────────────
+    channel_service = None
+    try:
+        from novelfactory.channels import start_channel_service
+
+        channels_enabled = os.environ.get("CHANNELS_ENABLED", str(settings.CHANNELS_ENABLED)).lower() == "true"
+        feishu_app_id = os.environ.get("LARK_APP_ID", settings.LARK_APP_ID or "")
+        feishu_app_secret = os.environ.get("LARK_APP_SECRET", settings.LARK_APP_SECRET or "")
+
+        if channels_enabled and feishu_app_id and feishu_app_secret:
+            channels_config = {
+                "feishu": {
+                    "enabled": True,
+                    "app_id": feishu_app_id,
+                    "app_secret": feishu_app_secret,
+                }
+            }
+            channel_service = await start_channel_service(
+                channels_config=channels_config,
+                get_graph=lambda: app.state.graph,
+            )
+            app.state.channel_service = channel_service
+            logger.info("[server] Channel service started")
+        elif feishu_app_id:
+            logger.info("[server] Channels disabled, skipping channel service")
+        else:
+            logger.info("[server] Feishu not configured (LARK_APP_ID empty), skipping channel service")
+    except Exception:
+        logger.exception("[server] Failed to start channel service")
+
     gc_task = asyncio.create_task(periodic_gc(app))
     cron_task = asyncio.create_task(cron_scheduler(app))
     yield
     cron_task.cancel()
     gc_task.cancel()
     logger.info("[server] Shutting down — releasing resources")
+
+    # ── 停止渠道服务 ──────────────────────────────────────────────────────
+    if channel_service is not None:
+        try:
+            from novelfactory.channels import stop_channel_service
+
+            await stop_channel_service()
+            logger.info("[server] Channel service stopped")
+        except Exception:
+            logger.exception("[server] Error stopping channel service")
 
     # ── Close DatabaseManager ──────────────────────────────────────────────
     try:
@@ -194,8 +235,32 @@ app = FastAPI(
         {"name": "runs", "description": "Graph execution (streaming + sync)"},
         {"name": "store", "description": "Key-value store"},
         {"name": "health", "description": "Health and readiness checks"},
+        {"name": "console", "description": "Operations console & observability"},
+        {"name": "memory", "description": "Global memory management"},
+        {"name": "feedback", "description": "User feedback collection"},
+        {"name": "input-polish", "description": "Input text polishing"},
+        {"name": "suggestions", "description": "Follow-up suggestion generation"},
+        {"name": "channels", "description": "IM channel management"},
     ],
 )
+
+# ── Trace Middleware ────────────────────────────────────────────────────────────
+try:
+    from novelfactory.middleware.trace_middleware import TraceMiddleware
+
+    app.add_middleware(TraceMiddleware, enabled=True)
+    logger.info("[server] Trace middleware enabled")
+except Exception:
+    logger.debug("[server] Trace middleware not available")
+
+# ── CSRF Middleware ────────────────────────────────────────────────────────────
+try:
+    from novelfactory.middleware.csrf_middleware import CSRFMiddleware
+
+    app.add_middleware(CSRFMiddleware, enabled=True)
+    logger.info("[server] CSRF middleware enabled")
+except Exception:
+    logger.debug("[server] CSRF middleware not available")
 
 # v6.1: 统一从 settings 读取
 allowed_origins = os.environ.get(
@@ -220,23 +285,59 @@ from novelfactory.api.time_travel import router as time_travel_router  # noqa: E
 from novelfactory.server.routes.assistants import (  # noqa: E402
     router as assistants_router,
 )
+from novelfactory.server.routes.channel_connections import (  # noqa: E402
+    router as channel_connections_router,
+)
+from novelfactory.server.routes.console import (  # noqa: E402
+    router as console_router,
+)
 from novelfactory.server.routes.crons import router as crons_router  # noqa: E402
+from novelfactory.server.routes.features import (  # noqa: E402
+    router as features_router,
+)
+from novelfactory.server.routes.feedback import (  # noqa: E402
+    router as feedback_router,
+)
 from novelfactory.server.routes.feishu_callback import (  # noqa: E402
     router as feishu_callback_router,
 )
 from novelfactory.server.routes.health import router as health_router  # noqa: E402
+from novelfactory.server.routes.input_polish import (  # noqa: E402
+    router as input_polish_router,
+)
+from novelfactory.server.routes.memory import (  # noqa: E402
+    router as memory_router,
+)
 from novelfactory.server.routes.runs import router as runs_router  # noqa: E402
 from novelfactory.server.routes.store import router as store_router  # noqa: E402
+from novelfactory.server.routes.suggestions import (  # noqa: E402
+    router as suggestions_router,
+)
 from novelfactory.server.routes.threads import router as threads_router  # noqa: E402
 
 app.include_router(assistants_router)
-app.include_router(threads_router)
+app.include_router(channel_connections_router)
+app.include_router(console_router)
+app.include_router(crons_router)
+app.include_router(features_router)
+app.include_router(feedback_router)
+app.include_router(feishu_callback_router)
+app.include_router(health_router)
+app.include_router(input_polish_router)
+app.include_router(memory_router)
 app.include_router(runs_router)
 app.include_router(store_router)
-app.include_router(crons_router)
-app.include_router(health_router)
-app.include_router(feishu_callback_router)
+app.include_router(suggestions_router)
+app.include_router(threads_router)
 app.include_router(time_travel_router)
+
+# ── Static Files ──────────────────────────────────────────────────────────────
+import os as _os
+from fastapi.staticfiles import StaticFiles
+
+_static_dir = _os.path.join(_os.path.dirname(__file__), "static")
+if _os.path.isdir(_static_dir):
+    app.mount("/static", StaticFiles(directory=_static_dir), name="static")
 
 
 # ── SDK: /ui ───────────────────────────────────────────────────────────────────

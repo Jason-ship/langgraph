@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NovelFactory 小说工厂</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; color: #333; line-height: 1.6; }
+.container { max-width: 900px; margin: 0 auto; padding: 16px; }
+header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #fff; padding: 24px; border-radius: 12px; margin-bottom: 16px; }
+header h1 { font-size: 22px; margin-bottom: 4px; }
+header .subtitle { font-size: 13px; opacity: 0.9; }
+.tab-nav { display: flex; gap: 4px; margin-bottom: 12px; background: #fff; border-radius: 8px; padding: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+.tab-btn { flex: 1; padding: 10px 8px; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; background: transparent; transition: all 0.2s; white-space: nowrap; }
+.tab-btn.active { background: #1890ff; color: #fff; }
+.tab-btn:hover:not(.active) { background: #f0f0f0; }
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+.card { background: #fff; border-radius: 8px; padding: 16px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+.card-title { font-size: 15px; font-weight: 600; margin-bottom: 10px; }
+.form-group { margin-bottom: 12px; }
+.form-group label { display: block; margin-bottom: 4px; font-size: 13px; color: #666; }
+.form-group input, .form-group select, .form-group textarea {
+    width: 100%; padding: 8px 12px; border: 1px solid #d9d9d9; border-radius: 6px; font-size: 14px;
+}
+.form-group input:focus, .form-group textarea:focus { border-color: #1890ff; outline: none; }
+.btn { padding: 8px 20px; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; transition: all 0.2s; }
+.btn-primary { background: #1890ff; color: #fff; }
+.btn-primary:hover { background: #096dd9; }
+.btn-primary:disabled { background: #ccc; cursor: not-allowed; }
+.btn-danger { background: #ff4d4f; color: #fff; }
+.btn-success { background: #52c41a; color: #fff; }
+.btn-secondary { background: #f0f0f0; color: #333; }
+.btn-secondary:hover { background: #d9d9d9; }
+.progress-bar { width: 100%; height: 8px; background: #f0f0f0; border-radius: 4px; overflow: hidden; margin: 8px 0; }
+.progress-fill { height: 100%; background: #1890ff; transition: width 0.3s; }
+.log-area { background: #1a1a1a; color: #0f0; padding: 12px; border-radius: 6px; font-family: 'Monaco', monospace; font-size: 12px; max-height: 400px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; }
+.chapter-item { background: #fff; border-radius: 6px; padding: 12px; margin-bottom: 8px; border-left: 4px solid #1890ff; }
+.chapter-item.completed { border-left-color: #52c41a; }
+.chapter-item.pending { border-left-color: #faad14; }
+.chapter-item.failed { border-left-color: #ff4d4f; }
+.chapter-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.chapter-title { font-weight: 600; font-size: 14px; }
+.chapter-status { padding: 2px 8px; border-radius: 4px; font-size: 11px; }
+.chapter-status.completed { background: #f6ffed; color: #52c41a; }
+.chapter-status.pending { background: #fffbe6; color: #faad14; }
+.chapter-status.writing { background: #e6f7ff; color: #1890ff; }
+.chapter-preview { font-size: 13px; color: #666; max-height: 100px; overflow: hidden; }
+.empty-state { text-align: center; padding: 32px; color: #999; }
+.stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 16px; }
+.stat-card { background: #fff; border-radius: 8px; padding: 16px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+.stat-value { font-size: 24px; font-weight: 700; color: #1890ff; }
+.stat-label { font-size: 12px; color: #666; margin-top: 4px; }
+.status-indicator { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.status-indicator.running { background: #52c41a; }
+.status-indicator.stopped { background: #ff4d4f; }
+.service-status { display: flex; align-items: center; gap: 8px; padding: 10px 16px; background: #fff; border-radius: 8px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+.provider-card { background: #fff; border-radius: 8px; padding: 16px; margin-bottom: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+.provider-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.provider-name { font-size: 16px; font-weight: 600; }
+.provider-status { padding: 4px 12px; border-radius: 12px; font-size: 12px; }
+.provider-status.connected { background: #f6ffed; color: #52c41a; border: 1px solid #b7eb8f; }
+.provider-status.disconnected { background: #fff2f0; color: #ff4d4f; border: 1px solid #ffccc7; }
+.provider-actions { display: flex; gap: 8px; }
+.fact-item { background: #fff; border-radius: 6px; padding: 10px; margin-bottom: 6px; }
+.fact-content { margin-bottom: 6px; }
+.fact-meta { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.run-item { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: #fff; border-radius: 6px; margin-bottom: 5px; }
+.run-status { padding: 2px 8px; border-radius: 4px; font-size: 11px; }
+.run-status.completed { background: #f6ffed; color: #52c41a; }
+.run-status.running { background: #e6f7ff; color: #1890ff; }
+.config-form { margin-top: 10px; padding: 10px; background: #fafafa; border-radius: 6px; }
+.loading { text-align: center; padding: 24px; color: #999; }
+</style>
+</head>
+<body>
+<div class="container">
+    <header>
+        <h1>✍️ NovelFactory 小说工厂</h1>
+        <p class="subtitle">创作 · 渠道 · 监控 · 记忆 · 反馈</p>
+    </header>
+
+    <div class="tab-nav">
+        <button class="tab-btn active" onclick="switchTab('create')" id="tab-create">✍️ 创作</button>
+        <button class="tab-btn" onclick="switchTab('channels')" id="tab-channels">📡 渠道</button>
+        <button class="tab-btn" onclick="switchTab('console')" id="tab-console">📊 监控</button>
+        <button class="tab-btn" onclick="switchTab('memory')" id="tab-memory">🧠 记忆</button>
+        <button class="tab-btn" onclick="switchTab('feedback')" id="tab-feedback">⭐ 反馈</button>
+    </div>
+
+    <!-- ===== 创作 Tab ===== -->
+    <div id="panel-create" class="tab-panel active">
+        <div class="card">
+            <div class="card-title">🚀 新建小说项目</div>
+            <div class="form-group">
+                <label>项目名称</label>
+                <input type="text" id="novelTitle" placeholder="例如：星辰变">
+            </div>
+            <div class="form-group">
+                <label>小说类型</label>
+                <select id="novelGenre">
+                    <option value="玄幻">玄幻</option>
+                    <option value="都市">都市</option>
+                    <option value="科幻">科幻</option>
+                    <option value="历史">历史</option>
+                    <option value="悬疑">悬疑</option>
+                    <option value="言情">言情</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>目标章节数</label>
+                <input type="number" id="novelChapters" value="30" min="1" max="100">
+            </div>
+            <div class="form-group">
+                <label>故事种子（可选）</label>
+                <textarea id="novelSeed" rows="2" placeholder="一句话描述故事核心，例如：一个少年获得星辰传承，在修仙世界崛起"></textarea>
+            </div>
+            <button class="btn btn-primary" id="startBtn" onclick="startNovelCreation()">开始创作</button>
+        </div>
+
+        <div class="card" id="progressCard" style="display:none">
+            <div class="card-title">📊 创作进度</div>
+            <div id="projectInfo" style="margin-bottom:8px;"></div>
+            <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+            <div id="progressText" style="font-size:13px;color:#666;margin:4px 0;">准备中...</div>
+            <div id="currentPhase" style="font-size:13px;color:#1890ff;"></div>
+        </div>
+
+        <div class="card" id="logCard" style="display:none">
+            <div class="card-title">📋 实时日志</div>
+            <div class="log-area" id="sseLog"></div>
+        </div>
+
+        <div class="card" id="chaptersCard" style="display:none">
+            <div class="card-title">📖 已完成章节</div>
+            <div id="chaptersList"></div>
+        </div>
+
+        <div class="card" id="reviewCard" style="display:none">
+            <div class="card-title">🔍 章节审核</div>
+            <div id="reviewContent"></div>
+            <div style="margin-top:10px;display:flex;gap:8px;">
+                <button class="btn btn-success" onclick="approveChapter()">✅ 通过</button>
+                <button class="btn btn-danger" onclick="rejectChapter()">❌ 拒绝</button>
+                <button class="btn btn-secondary" onclick="modifyChapter()">✏️ 修改</button>
+            </div>
+        </div>
+
+        <div class="card" id="historyCard" style="display:none">
+            <div class="card-title">📁 历史项目</div>
+            <div id="threadList"><div class="loading">加载中...</div></div>
+        </div>
+    </div>
+
+    <!-- ===== 渠道 Tab ===== -->
+    <div id="panel-channels" class="tab-panel">
+        <div class="service-status" id="serviceStatus">
+            <span class="status-indicator" id="statusIndicator"></span>
+            <span id="statusText">加载中...</span>
+        </div>
+        <div id="providers"><div class="loading">加载渠道列表...</div></div>
+    </div>
+
+    <!-- ===== 监控 Tab ===== -->
+    <div id="panel-console" class="tab-panel">
+        <div class="stats-grid">
+            <div class="stat-card"><div class="stat-value" id="statRuns">-</div><div class="stat-label">总运行</div></div>
+            <div class="stat-card"><div class="stat-value" id="statActive">-</div><div class="stat-label">运行中</div></div>
+            <div class="stat-card"><div class="stat-value" id="statTokens">-</div><div class="stat-label">Token</div></div>
+            <div class="stat-card"><div class="stat-value" id="statThreads">-</div><div class="stat-label">线程</div></div>
+        </div>
+        <div class="card"><div class="card-title">最近运行</div><div id="recentRuns"><div class="loading">加载...</div></div></div>
+    </div>
+
+    <!-- ===== 记忆 Tab ===== -->
+    <div id="panel-memory" class="tab-panel">
+        <div class="card">
+            <div class="card-title">记忆事实</div>
+            <div style="margin-bottom:8px;">
+                <button class="btn btn-primary" onclick="loadFacts()">刷新</button>
+                <button class="btn btn-secondary" onclick="document.getElementById('addFactForm').style.display='block'">添加</button>
+            </div>
+            <div id="addFactForm" class="config-form" style="display:none">
+                <textarea id="factContent" rows="2" placeholder="输入事实内容"></textarea>
+                <input type="text" id="factCategory" value="context" placeholder="分类" style="margin-top:4px;">
+                <button class="btn btn-primary" onclick="addFact()" style="margin-top:4px;">保存</button>
+            </div>
+            <div id="factsList"><div class="loading">加载...</div></div>
+        </div>
+    </div>
+
+    <!-- ===== 反馈 Tab ===== -->
+    <div id="panel-feedback" class="tab-panel">
+        <div class="card"><div class="card-title">反馈统计</div><div id="feedbackStats" class="empty-state">通过 API 查询: GET /api/threads/{id}/runs/{id}/feedback/stats</div></div>
+    </div>
+</div>
+
+<script>
+// ── 全局状态 ──────────────────────────────────────────────────────────────
+let currentThreadId = null;
+let currentRunId = null;
+let sseSource = null;
+
+// ── Tab 切换 ──────────────────────────────────────────────────────────────
+function switchTab(name) {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    document.getElementById(`tab-${name}`).classList.add('active');
+    document.getElementById(`panel-${name}`).classList.add('active');
+    if (name === 'channels') loadChannels();
+    if (name === 'console') loadConsole();
+    if (name === 'memory') loadFacts();
+    if (name === 'create') loadHistory();
+}
+
+// ── 创作：开始 ────────────────────────────────────────────────────────────
+async function startNovelCreation() {
+    const title = document.getElementById('novelTitle').value.trim() || '未命名小说';
+    const genre = document.getElementById('novelGenre').value;
+    const chapters = parseInt(document.getElementById('novelChapters').value) || 30;
+    const seed = document.getElementById('novelSeed').value.trim();
+
+    const cmd = `/new ${genre} ${chapters} ${title}${seed ? ' ' + seed : ''}`;
+
+    document.getElementById('startBtn').disabled = true;
+    document.getElementById('startBtn').textContent = '创建中...';
+
+    try {
+        // 1. 创建线程
+        const threadResp = await fetch('/threads', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({})
+        });
+        if (!threadResp.ok) throw new Error(`创建线程失败: ${threadResp.status}`);
+        const threadData = await threadResp.json();
+        currentThreadId = threadData.thread_id;
+
+        appendLog(`✅ 线程已创建: ${currentThreadId}`);
+        appendLog(`📖 项目: ${title} | 类型: ${genre} | 目标: ${chapters}章`);
+
+        // 2. 启动运行（流式）
+        const runResp = await fetch(`/threads/${currentThreadId}/runs`, {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                input: {messages: [{role: 'user', content: cmd}]},
+                stream: true,
+                config: {recursion_limit: 5000}
+            })
+        });
+
+        if (!runResp.ok) throw new Error(`启动失败: ${runResp.status}`);
+
+        document.getElementById('progressCard').style.display = 'block';
+        document.getElementById('logCard').style.display = 'block';
+        document.getElementById('projectInfo').textContent = `${title} (${genre}) - 目标${chapters}章`;
+
+        // 3. 处理 SSE 流
+        const reader = runResp.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+            const {done, value} = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, {stream: true});
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+            for (const line of lines) {
+                if (line.startsWith('event: ')) {
+                    const eventType = line.slice(7).trim();
+                } else if (line.startsWith('data: ')) {
+                    const dataStr = line.slice(6);
+                    try {
+                        const data = JSON.parse(dataStr);
+                        handleSSEEvent(data);
+                    } catch(e) { /* ignore parse errors */ }
+                }
+            }
+        }
+
+        appendLog('✅ 创作流程结束');
+        document.getElementById('progressText').textContent = '完成';
+        document.getElementById('progressFill').style.width = '100%';
+    } catch (err) {
+        appendLog(`❌ 错误: ${err.message}`);
+    } finally {
+        document.getElementById('startBtn').disabled = false;
+        document.getElementById('startBtn').textContent = '开始创作';
+    }
+}
+
+function handleSSEEvent(data) {
+    // metadata 事件
+    if (data.run_id) {
+        currentRunId = data.run_id;
+        appendLog(`🏃 运行已启动: ${currentRunId}`);
+    }
+
+    // progress 事件
+    if (data.phase) {
+        const phaseNames = {setup:'设定', writing:'写作', media:'媒体', sync:'同步', done:'完成'};
+        document.getElementById('currentPhase').textContent = `阶段: ${phaseNames[data.phase] || data.phase}`;
+    }
+    if (data.chapter) {
+        const total = data.total_chapters || '?';
+        const current = data.chapter;
+        const pct = total !== '?' ? (current / total * 100) : 0;
+        document.getElementById('progressFill').style.width = pct + '%';
+        document.getElementById('progressText').textContent = `第 ${current} / ${total} 章`;
+    }
+    if (data.agent) {
+        appendLog(`🤖 Agent: ${data.agent} ${data.agent_status || ''}`);
+    }
+
+    // messages 事件
+    if (Array.isArray(data) && data.length >= 2) {
+        const msg = data[0];
+        if (msg && msg.content) {
+            const text = typeof msg.content === 'string' ? msg.content : '';
+            if (text && text.length > 10) {
+                appendLog(`💬 ${text.substring(0, 200)}${text.length > 200 ? '...' : ''}`);
+            }
+        }
+    }
+
+    // values 事件 - 包含完整状态
+    if (data.crew_result) {
+        const cr = data.crew_result;
+        if (cr.completed_chapters) {
+            updateChaptersList(cr.completed_chapters);
+        }
+        if (cr.quality_score !== undefined) {
+            appendLog(`📊 质量评分: ${cr.quality_score}`);
+        }
+    }
+
+    // interrupt 事件
+    if (data.interrupts) {
+        appendLog('⏸️ 等待审核...');
+        document.getElementById('reviewCard').style.display = 'block';
+        document.getElementById('reviewContent').innerHTML = `
+            <p>章节已完成，请审核：</p>
+            <p style="font-size:13px;color:#666;">Thread: ${currentThreadId}</p>
+        `;
+    }
+
+    // end/error 事件
+    if (data.status === 'completed') {
+        appendLog('🎉 创作完成！');
+    }
+    if (data.status === 'error' || data.error) {
+        appendLog(`❌ 错误: ${data.error || '未知错误'}`);
+    }
+}
+
+function appendLog(text) {
+    const log = document.getElementById('sseLog');
+    const time = new Date().toLocaleTimeString();
+    log.innerHTML += `[${time}] ${text}\n`;
+    log.scrollTop = log.scrollHeight;
+}
+
+function updateChaptersList(chapters) {
+    const container = document.getElementById('chaptersList');
+    document.getElementById('chaptersCard').style.display = 'block';
+    container.innerHTML = chapters.map(ch => `
+        <div class="chapter-item ${ch.quality_score >= 80 ? 'completed' : 'pending'}">
+            <div class="chapter-header">
+                <span class="chapter-title">第${ch.chapter_number}章</span>
+                <span class="chapter-status ${ch.quality_score >= 80 ? 'completed' : 'pending'}">评分: ${ch.quality_score || '?'}</span>
+            </div>
+            <div class="chapter-preview">${(ch.chapter_summary || '').substring(0, 150)}...</div>
+        </div>
+    `).join('');
+}
+
+// ── 审核 ──────────────────────────────────────────────────────────────────
+async function approveChapter() {
+    if (!currentThreadId) return;
+    try {
+        await fetch(`/threads/${currentThreadId}/runs`, {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({input: {resume: {action: 'approve'}}, stream: true})
+        });
+        document.getElementById('reviewCard').style.display = 'none';
+        appendLog('✅ 审核通过，继续创作...');
+    } catch(err) { appendLog(`❌ 审核失败: ${err.message}`); }
+}
+
+async function rejectChapter() {
+    if (!currentThreadId) return;
+    const comment = prompt('请输入拒绝原因:') || '';
+    try {
+        await fetch(`/threads/${currentThreadId}/runs`, {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({input: {resume: {action: 'reject', comment}}, stream: true})
+        });
+        document.getElementById('reviewCard').style.display = 'none';
+        appendLog('❌ 已拒绝，等待修改...');
+    } catch(err) { appendLog(`❌ 操作失败: ${err.message}`); }
+}
+
+async function modifyChapter() {
+    if (!currentThreadId) return;
+    const comment = prompt('请输入修改建议:') || '';
+    try {
+        await fetch(`/threads/${currentThreadId}/runs`, {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({input: {resume: {action: 'modify', comment}}, stream: true})
+        });
+        document.getElementById('reviewCard').style.display = 'none';
+        appendLog('✏️ 已提交修改建议，继续创作...');
+    } catch(err) { appendLog(`❌ 操作失败: ${err.message}`); }
+}
+
+// ── 历史 ──────────────────────────────────────────────────────────────────
+async function loadHistory() {
+    try {
+        const resp = await fetch('/threads');
+        if (!resp.ok) return;
+        const data = await resp.json();
+        const container = document.getElementById('threadList');
+        if (!data || data.length === 0) {
+            container.innerHTML = '<div class="empty-state">暂无历史项目</div>';
+            return;
+        }
+        container.innerHTML = data.slice(0, 10).map(t => `
+            <div class="chapter-item pending" style="cursor:pointer;" onclick="resumeThread('${t.thread_id}')">
+                <div class="chapter-header">
+                    <span class="chapter-title">${t.thread_id.substring(0,8)}...</span>
+                    <span class="chapter-status pending">${t.metadata?.channel_source?.provider || 'web'}</span>
+                </div>
+            </div>
+        `).join('');
+    } catch(err) {
+        document.getElementById('threadList').innerHTML = '<div class="empty-state">加载失败</div>';
+    }
+}
+
+async function resumeThread(threadId) {
+    currentThreadId = threadId;
+    try {
+        const resp = await fetch(`/threads/${threadId}/state`);
+        if (!resp.ok) return;
+        const data = await resp.json();
+        const cr = data.values?.crew_result || {};
+        if (cr.completed_chapters) updateChaptersList(cr.completed_chapters);
+        document.getElementById('progressCard').style.display = 'block';
+        document.getElementById('logCard').style.display = 'block';
+        appendLog(`📁 已恢复线程: ${threadId}`);
+    } catch(err) { /* ignore */ }
+}
+
+// ── 渠道 ──────────────────────────────────────────────────────────────────
+async function loadChannels() {
+    try {
+        const resp = await fetch('/api/channels');
+        if (!resp.ok) throw new Error('加载失败');
+        const data = await resp.json();
+        document.getElementById('statusIndicator').className = 'status-indicator ' + (data.enabled ? 'running' : 'stopped');
+        document.getElementById('statusText').textContent = data.enabled ? '服务运行中' : '服务未运行';
+        const container = document.getElementById('providers');
+        container.innerHTML = '';
+        for (const p of (data.providers || [])) {
+            const statusMap = {connected:'已连接', disconnected:'未连接', configured:'已配置'};
+            container.innerHTML += `
+                <div class="provider-card">
+                    <div class="provider-header">
+                        <span class="provider-name">${p.display_name || p.provider}</span>
+                        <span class="provider-status ${p.connection_status}">${statusMap[p.connection_status] || p.connection_status}</span>
+                    </div>
+                    <div class="provider-actions">
+                        ${p.connection_status === 'connected'
+                            ? `<button class="btn btn-danger" onclick="disconnectChannel('${p.provider}')">断开</button>
+                               <button class="btn btn-secondary" onclick="restartChannel('${p.provider}')">重启</button>`
+                            : p.configured
+                                ? `<button class="btn btn-primary" onclick="connectChannel('${p.provider}')">连接</button>
+                                   <button class="btn btn-secondary" onclick="showConfig('${p.provider}')">配置</button>`
+                                : `<button class="btn btn-primary" onclick="showConfig('${p.provider}')">配置</button>`
+                        }
+                    </div>
+                    <div id="config-${p.provider}" class="config-form" style="display:none">
+                        ${(p.credential_fields||[]).map(f => `<label>${f.label}</label><input type="${f.type}" id="${p.provider}-${f.name}" placeholder="${f.label}">`).join('')}
+                        <button class="btn btn-primary" onclick="saveConfig('${p.provider}')" style="margin-top:4px;">保存</button>
+                    </div>
+                    <div id="connect-${p.provider}" style="display:none;margin-top:8px;font-size:13px;color:#52c41a;"></div>
+                </div>`;
+        }
+    } catch(err) {
+        document.getElementById('providers').innerHTML = `<div class="loading">${err.message}</div>`;
+    }
+}
+
+async function connectChannel(provider) {
+    try {
+        const resp = await fetch(`/api/channels/${provider}/connect`);
+        const data = await resp.json();
+        const div = document.getElementById(`connect-${provider}`);
+        div.textContent = `向飞书 Bot 发送: ${data.instruction}`;
+        div.style.display = 'block';
+    } catch(err) { alert(`失败: ${err.message}`); }
+}
+
+async function disconnectChannel(provider) {
+    if (!confirm(`确定断开 ${provider}?`)) return;
+    await fetch(`/api/channels/${provider}/disconnect`, {method:'POST'});
+    loadChannels();
+}
+
+async function restartChannel(provider) {
+    await fetch(`/api/channels/${provider}/restart`, {method:'POST'});
+    loadChannels();
+}
+
+function showConfig(provider) { document.getElementById(`config-${provider}`).style.display = 'block'; }
+
+async function saveConfig(provider) {
+    const form = document.getElementById(`config-${provider}`);
+    const inputs = form.querySelectorAll('input');
+    const config = {};
+    inputs.forEach(i => config[i.id.replace(`${provider}-`,'')] = i.value);
+    await fetch(`/api/channels/${provider}/configure`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({config})});
+    loadChannels();
+}
+
+// ── 监控 ──────────────────────────────────────────────────────────────────
+async function loadConsole() {
+    try {
+        const [s, r] = await Promise.all([fetch('/api/console/stats'), fetch('/api/console/runs?limit=10')]);
+        const stats = await s.json(); const runs = await r.json();
+        document.getElementById('statRuns').textContent = stats.total_runs || 0;
+        document.getElementById('statActive').textContent = stats.active_runs || 0;
+        document.getElementById('statTokens').textContent = (stats.total_tokens||0).toLocaleString();
+        document.getElementById('statThreads').textContent = stats.total_threads || 0;
+        const c = document.getElementById('recentRuns');
+        if (!runs.runs?.length) { c.innerHTML = '<div class="empty-state">暂无记录</div>'; return; }
+        c.innerHTML = runs.runs.map(r => `<div class="run-item"><span class="run-status ${r.status}">${r.status}</span><span style="font-family:monospace;font-size:12px;flex:1">${(r.run_id||'').substring(0,8)}...</span><span style="font-size:12px;color:#999">${(r.total_tokens||0).toLocaleString()} tok</span></div>`).join('');
+    } catch(err) { document.getElementById('recentRuns').innerHTML = `<div class="loading">${err.message}</div>`; }
+}
+
+// ── 记忆 ──────────────────────────────────────────────────────────────────
+async function loadFacts() {
+    try {
+        const resp = await fetch('/api/memory/facts');
+        const facts = await resp.json();
+        const c = document.getElementById('factsList');
+        if (!facts?.length) { c.innerHTML = '<div class="empty-state">暂无记忆</div>'; return; }
+        c.innerHTML = facts.map(f => `<div class="fact-item"><div class="fact-content">${f.content}</div><div class="fact-meta"><span style="background:#e6f7ff;color:#1890ff;padding:2px 6px;border-radius:4px;">${f.category}</span><span style="color:#999">${(f.confidence*100).toFixed(0)}%</span><button class="btn btn-danger" style="padding:2px 8px;font-size:12px;" onclick="deleteFact('${f.id}')">删除</button></div></div>`).join('');
+    } catch(err) { document.getElementById('factsList').innerHTML = `<div class="loading">${err.message}</div>`; }
+}
+
+async function addFact() {
+    const content = document.getElementById('factContent').value;
+    const category = document.getElementById('factCategory').value;
+    if (!content) return alert('请输入内容');
+    await fetch('/api/memory/facts', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content,category,confidence:0.8})});
+    document.getElementById('factContent').value = '';
+    document.getElementById('addFactForm').style.display = 'none';
+    loadFacts();
+}
+
+async function deleteFact(id) {
+    if (!confirm('确定删除?')) return;
+    await fetch(`/api/memory/facts/${id}`, {method:'DELETE'});
+    loadFacts();
+}
+
+// ── 初始化 ────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => { loadHistory(); });
+</script>
+</body>
+</html>

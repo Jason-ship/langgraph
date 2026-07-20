@@ -1,11 +1,12 @@
-"""Feishu notification sender (synchronous) — via FeishuToolkit → httpx → tools-proxy.
+"""Feishu notification sender — prefers new channels layer, falls back to FeishuToolkit.
 
-v6.5: All message sending routed through FeishuToolkit (httpx HTTP proxy),
-delegating to tools-proxy v2.0.0 instead of direct lark-cli subprocess.
+v6.5: All message sending routed through FeishuToolkit (httpx HTTP proxy).
+v7.0: Channels layer preferred when available (FeishuChannel WebSocket).
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 
@@ -23,6 +24,17 @@ _QUALITY_EXCELLENT = 80  # 优秀质量阈值
 _QUALITY_GOOD = 60  # 良好质量阈值
 _PCT_BASE = 100  # 百分比基数
 _HTTP_OK = 200  # HTTP 200 OK
+
+# Module-level event loop for async → sync bridge
+_event_loop: asyncio.AbstractEventLoop | None = None
+
+
+def _get_event_loop() -> asyncio.AbstractEventLoop:
+    """Get or create a module-level event loop for async bridge calls."""
+    global _event_loop
+    if _event_loop is None or _event_loop.is_closed():
+        _event_loop = asyncio.new_event_loop()
+    return _event_loop
 
 
 def _send_lark_message(receive_id: str, text: str) -> bool:
@@ -130,14 +142,31 @@ def send_progress_notification(
     total: int,
     chat_id: str | None = None,
 ) -> None:
-    """Send a progress update notification."""
+    """Send a progress update notification.
+
+    v7.0: Prefers channels layer when available.
+    """
     progress = chapter / max(total, 1) * _PCT_BASE
     message = (
         f"📖 创作进度：第{chapter}章完成 ({progress:.0f}%)\n"
         f"目标：{total}章\n"
         f"Thread: {thread_id}"
     )
-    # v6.1: 统一从 settings 读取
+    # Try channel layer first
+    if chat_id:
+        try:
+            from novelfactory.channels.adapter import send_channel_message
+
+            loop = _get_event_loop()
+            sent = loop.run_until_complete(
+                send_channel_message(chat_id, message, thread_id=thread_id)
+            )
+            if sent:
+                return
+        except Exception:
+            logger.debug("[notify] Channel layer unavailable for progress", exc_info=True)
+
+    # Fallback
     target = (
         chat_id or _st.FEISHU_USER_OPEN_ID or os.environ.get("FEISHU_USER_OPEN_ID", "")
     )
@@ -153,7 +182,10 @@ def send_human_intervention_alert(
     custom_message: str = "",
     chat_id: str | None = None,
 ) -> None:
-    """Send a high-priority alert when a chapter needs human guidance."""
+    """Send a high-priority alert when a chapter needs human guidance.
+
+    v7.0: Prefers channels layer when available.
+    """
     header = f"🚨 【需人工介入】第{chapter_num}章质量评分 {quality_score:.1f}/100（自动重写已用尽）"
     body = custom_message or f"【{project_name}】请提供具体的修改指导后回复。"
     lines = [
@@ -163,7 +195,22 @@ def send_human_intervention_alert(
         f"Thread: {thread_id}" if thread_id else "",
     ]
     message_text = "\n".join(line for line in lines if line)
-    # v6.1: 统一从 settings 读取
+
+    # Try channel layer first
+    if chat_id:
+        try:
+            from novelfactory.channels.adapter import send_channel_message
+
+            loop = _get_event_loop()
+            sent = loop.run_until_complete(
+                send_channel_message(chat_id, message_text, thread_id=thread_id)
+            )
+            if sent:
+                return
+        except Exception:
+            logger.debug("[notify] Channel layer unavailable for alert", exc_info=True)
+
+    # Fallback
     target = (
         chat_id or _st.FEISHU_USER_OPEN_ID or os.environ.get("FEISHU_USER_OPEN_ID", "")
     )
@@ -173,17 +220,16 @@ def send_human_intervention_alert(
         logger.warning("[notify] No FEISHU_USER_OPEN_ID configured, skipping send")
 
 
-def send_chapter_complete_notification(
+def _send_chapter_complete_fallback(
     chapter_num: int,
     quality_score: float,
     usage: dict,
     project_name: str = "",
     thread_id: str = "",
-    chat_id: str | None = None,
     feishu_doc_url: str = "",
     word_count: int = 0,
 ) -> None:
-    """Send a chapter completion notification with quality score, token usage, and doc link."""
+    """Fallback: send chapter completion via FeishuToolkit → tools-proxy."""
     score_emoji = (
         "🟢"
         if quality_score >= _QUALITY_EXCELLENT
@@ -217,22 +263,65 @@ def send_chapter_complete_notification(
 
     message_text = "\n".join(line for line in lines if line)
 
-    # Try FEISHU_CHAT_ID first (group chat), fall back to FEISHU_USER_OPEN_ID (personal), then chat_id param
-    # v6.1: 统一从 settings 读取
     target = (
-        chat_id
-        or _st.FEISHU_CHAT_ID
+        _st.FEISHU_CHAT_ID
         or os.environ.get("FEISHU_CHAT_ID", "")
         or _st.FEISHU_USER_OPEN_ID
         or os.environ.get("FEISHU_USER_OPEN_ID", "")
     )
     if target:
-        # send_lark_message 入口接受 receive_id_type 参数，默认 open_id
         id_type = "chat_id" if target.startswith("oc_") else "open_id"
-        send_lark_message(
-            target, text=message_text, receive_id_type=id_type, timeout=_FEISHU_TIMEOUT
-        )
+        send_lark_message(target, text=message_text, receive_id_type=id_type, timeout=_FEISHU_TIMEOUT)
     else:
-        logger.warning(
-            "[notify] No FEISHU_USER_OPEN_ID or FEISHU_CHAT_ID configured, skipping send"
-        )
+        logger.warning("[notify] No FEISHU_USER_OPEN_ID or FEISHU_CHAT_ID configured, skipping send")
+
+
+def send_chapter_complete_notification(
+    chapter_num: int,
+    quality_score: float,
+    usage: dict,
+    project_name: str = "",
+    thread_id: str = "",
+    chat_id: str | None = None,
+    feishu_doc_url: str = "",
+    word_count: int = 0,
+) -> None:
+    """Send a chapter completion notification with quality score, token usage, and doc link.
+
+    v7.0: Prefers channels layer (FeishuChannel WebSocket) when available,
+    falls back to FeishuToolkit → tools-proxy.
+    """
+    # Try channel layer first (async → sync bridge via event loop)
+    if chat_id or _st.FEISHU_CHAT_ID or os.environ.get("FEISHU_CHAT_ID", ""):
+        target_chat_id = chat_id or _st.FEISHU_CHAT_ID or os.environ.get("FEISHU_CHAT_ID", "")
+        try:
+            from novelfactory.channels.adapter import send_chapter_complete_via_channel
+
+            loop = _get_event_loop()
+            sent = loop.run_until_complete(
+                send_chapter_complete_via_channel(
+                    chapter_num=chapter_num,
+                    quality_score=quality_score,
+                    project_name=project_name,
+                    thread_id=thread_id,
+                    feishu_doc_url=feishu_doc_url,
+                    word_count=word_count,
+                    chat_id=target_chat_id,
+                )
+            )
+            if sent:
+                logger.info("[notify] Chapter %d notification sent via channel layer", chapter_num)
+                return
+        except Exception:
+            logger.debug("[notify] Channel layer unavailable, falling back to FeishuToolkit", exc_info=True)
+
+    # Fallback: FeishuToolkit → tools-proxy
+    _send_chapter_complete_fallback(
+        chapter_num=chapter_num,
+        quality_score=quality_score,
+        usage=usage,
+        project_name=project_name,
+        thread_id=thread_id,
+        feishu_doc_url=feishu_doc_url,
+        word_count=word_count,
+    )

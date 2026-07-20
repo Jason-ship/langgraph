@@ -19,13 +19,29 @@ router = APIRouter()
 
 @router.get("/health", tags=["health"])
 async def health() -> dict:
-    """Health check endpoint — includes tools-proxy status."""
-    # Check tools-proxy health (sync, runs in executor)
+    """Health check endpoint — includes tools-proxy and channel status."""
     tp_status = await _check_tools_proxy()
+
+    # Check channel service status
+    channel_status = "not_configured"
+    channel_info = {}
+    try:
+        from novelfactory.channels.service import get_channel_service
+
+        service = get_channel_service()
+        if service is not None:
+            status = service.get_status()
+            channel_status = "running" if status.get("service_running") else "stopped"
+            channel_info = status
+    except Exception:
+        channel_status = "unavailable"
+
     return {
         "status": "ok",
         "version": settings.APP_VERSION,
         "tools_proxy": tp_status,
+        "channel_service": channel_status,
+        "channel_info": channel_info,
         "lark_proxy_url": _get_lark_proxy_url(),
     }
 

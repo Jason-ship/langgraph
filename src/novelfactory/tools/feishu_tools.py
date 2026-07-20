@@ -13,6 +13,7 @@ v6.5: 集成 FeishuToolkit（覆盖 21 域 209 方法），
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -48,6 +49,8 @@ def _get_tk():
 def send_feishu_message(receive_id: str, text: str, id_type: str = "open_id") -> str:
     """发送飞书文本消息（个人或群聊）。
 
+    v7.0: 优先使用渠道层（FeishuChannel WebSocket）发送，失败时降级到 HTTP API。
+
     通过 lark-cli 发送消息到飞书用户或群聊。
     适用于：通知用户章节完成、发送审核请求、推送进度报告。
 
@@ -56,6 +59,22 @@ def send_feishu_message(receive_id: str, text: str, id_type: str = "open_id") ->
         text: 消息内容（纯文本）
         id_type: ID 类型，'open_id'（个人，默认）或 'chat_id'（群聊）
     """
+    # Try channel layer first (only for chat_id type)
+    if receive_id.startswith("oc_"):
+        try:
+            from novelfactory.channels.adapter import send_channel_message
+
+            import asyncio
+            loop = _get_tool_event_loop()
+            sent = loop.run_until_complete(
+                send_channel_message(receive_id, text)
+            )
+            if sent:
+                return json.dumps({"status": "sent_via_channel", "to": receive_id}, ensure_ascii=False)
+        except Exception:
+            logger.debug("[feishu_tools] Channel layer unavailable, using HTTP fallback")
+
+    # Fallback: FeishuToolkit → httpx → tools-proxy
     from novelfactory.integrations.feishu.feishu_api import send_lark_message
 
     try:
@@ -68,6 +87,17 @@ def send_feishu_message(receive_id: str, text: str, id_type: str = "open_id") ->
     except Exception as e:
         logger.error("[feishu_tools] send_feishu_message error: %s", e)
         return json.dumps({"error": str(e)}, ensure_ascii=False)
+
+
+# Module-level event loop for async bridge
+_tool_event_loop: asyncio.AbstractEventLoop | None = None
+
+
+def _get_tool_event_loop() -> asyncio.AbstractEventLoop:
+    global _tool_event_loop
+    if _tool_event_loop is None or _tool_event_loop.is_closed():
+        _tool_event_loop = asyncio.new_event_loop()
+    return _tool_event_loop
 
 
 @tool
