@@ -242,13 +242,6 @@ class WallTimeCallbackHandler(BaseCallbackHandler):
         """LLM 调用出错时记录。"""
         run_id = str(kwargs.get("run_id", ""))
         self._start_times.pop(run_id, None)
-                    f"  {phase:35s} {stats['seconds']:7.1f}s  "
-                    f"{stats['tokens']:>8,d} tokens  "
-                    f"{stats['llm_calls']:>4,d} LLM calls  "
-                    f"({stats['node_count']} nodes)"
-                )
-
-        return "\n".join(lines)
 
     def to_dict(self) -> dict[str, Any]:
         return {
