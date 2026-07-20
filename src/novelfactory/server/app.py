@@ -351,8 +351,10 @@ from novelfactory.server.routes.suggestions import (  # noqa: E402
     router as suggestions_router,
 )
 from novelfactory.server.routes.threads import router as threads_router  # noqa: E402
+from novelfactory.server.stub_router import router as stub_router  # noqa: E402
 
 app.include_router(assistants_router)
+app.include_router(stub_router)
 app.include_router(channel_connections_router)
 app.include_router(console_router)
 app.include_router(crons_router)

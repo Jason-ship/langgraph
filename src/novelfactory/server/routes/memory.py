@@ -14,7 +14,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/memory", tags=["memory"])
+router = APIRouter(prefix="/memory", tags=["memory"])
 
 
 class ContextSection(BaseModel):
@@ -142,6 +142,58 @@ async def delete_fact(fact_id: str):
     return {"status": "deleted", "fact_id": fact_id}
 
 
+@router.patch("/facts/{fact_id}", response_model=MemoryResponse)
+async def update_fact(fact_id: str, body: FactCreateRequest | None = None):
+    """部分更新事实（content/category/confidence 可选）。"""
+    global _fact_store
+    for i, f in enumerate(_fact_store):
+        if f.id == fact_id:
+            if body:
+                _fact_store[i] = Fact(
+                    id=f.id,
+                    content=body.content if body.content else f.content,
+                    category=body.category if body.category else f.category,
+                    confidence=body.confidence if body.confidence else f.confidence,
+                    createdAt=f.createdAt,
+                    source=f.source,
+                )
+            break
+    return _memory_store.get("default", MemoryResponse(lastUpdated=datetime.now(UTC).isoformat()))
+
+
+@router.delete("", response_model=MemoryResponse)
+async def clear_memory():
+    """清除所有记忆数据。"""
+    _memory_store.pop("default", None)
+    _fact_store.clear()
+    return MemoryResponse(lastUpdated=datetime.now(UTC).isoformat())
+
+
+@router.get("/export", response_model=MemoryResponse)
+async def export_memory():
+    """导出记忆为 JSON。"""
+    return _memory_store.get("default", MemoryResponse(lastUpdated=datetime.now(UTC).isoformat()))
+
+
+@router.post("/import", response_model=MemoryResponse)
+async def import_memory():
+    """导入并覆盖记忆数据（stub）。"""
+    return _memory_store.get("default", MemoryResponse(lastUpdated=datetime.now(UTC).isoformat()))
+
+
+@router.get("/config")
+async def memory_config():
+    """记忆系统配置。"""
+    return {
+        "enabled": True,
+        "mode": "tool",
+        "injection_enabled": True,
+        "shutdown_flush_timeout_seconds": 30.0,
+        "manager_class": "novelfactory.store.memory.MemoryManager",
+        "backend_config": {},
+    }
+
+
 @router.get("/status")
 async def memory_status():
     """记忆系统状态。"""
@@ -149,4 +201,13 @@ async def memory_status():
         "enabled": True,
         "fact_count": len(_fact_store),
         "memory_configured": "default" in _memory_store,
+        "config": {
+            "enabled": True,
+            "mode": "tool",
+            "injection_enabled": True,
+            "shutdown_flush_timeout_seconds": 30.0,
+            "manager_class": "novelfactory.store.memory.MemoryManager",
+            "backend_config": {},
+        },
+        "memory": _memory_store.get("default", MemoryResponse(lastUpdated=datetime.now(UTC).isoformat())),
     }

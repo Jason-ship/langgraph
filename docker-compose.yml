@@ -220,6 +220,32 @@ services:
       - langgraph_net
     mem_limit: 256M
 
+  # ── Frontend (Next.js) ────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmmirror.com/}
+    container_name: langgraph_frontend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      SKIP_ENV_VALIDATION: "true"
+      DEER_FLOW_AUTH_DISABLED: "1"
+      DEER_FLOW_ENV: development
+      DEER_FLOW_INTERNAL_GATEWAY_BASE_URL: http://nginx:80
+      NEXT_PUBLIC_APP_VERSION: ${NOVELFACTORY_VERSION:-8.0.0}
+      NEXT_PUBLIC_BACKEND_BASE_URL: ""
+      NEXT_PUBLIC_LANGGRAPH_BASE_URL: ""
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    depends_on:
+      - api
+    networks:
+      - langgraph_net
+    mem_limit: 512M
+
   # ── Nginx Reverse Proxy ────────────────────────────────────────────────────
   nginx:
     image: nginx:latest
@@ -232,8 +258,8 @@ services:
       - "${NGINX_PORT:-8081}:80"
       - "${NGINX_SSL_PORT:-8443}:443"
     depends_on:
-      api:
-        condition: service_healthy
+      - api
+      - frontend
     networks:
       - langgraph_net
     mem_limit: 256M

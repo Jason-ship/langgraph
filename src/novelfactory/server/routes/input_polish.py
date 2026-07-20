@@ -14,7 +14,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api", tags=["input-polish"])
+router = APIRouter(tags=["input-polish"])
 
 
 class InputPolishRequest(BaseModel):

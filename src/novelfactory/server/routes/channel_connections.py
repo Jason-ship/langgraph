@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 from novelfactory.channels.runtime_config_store import ChannelRuntimeConfigStore
 from novelfactory.channels.service import get_channel_service
 
-router = APIRouter(prefix="/api/channels", tags=["channels"])
+router = APIRouter(prefix="/channels", tags=["channels"])
 logger = logging.getLogger(__name__)
 
 _STATE_TTL_SECONDS = 600

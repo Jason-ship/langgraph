@@ -15,7 +15,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/threads", tags=["feedback"])
+router = APIRouter(prefix="/threads", tags=["feedback"])
 
 
 class FeedbackCreateRequest(BaseModel):

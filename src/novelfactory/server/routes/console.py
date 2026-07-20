@@ -14,7 +14,7 @@ from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/console", tags=["console"])
+router = APIRouter(prefix="/console", tags=["console"])
 
 
 class ConsoleStatsResponse(BaseModel):

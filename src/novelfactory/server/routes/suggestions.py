@@ -14,7 +14,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api", tags=["suggestions"])
+router = APIRouter(tags=["suggestions"])
 
 
 class SuggestionMessage(BaseModel):
