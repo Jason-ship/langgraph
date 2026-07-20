@@ -156,6 +156,39 @@ def _add_chapters_compressed(
     return result
 
 
+def _add_usage(old: dict | None, new: dict | None) -> dict:
+    """Token usage accumulator — merges chapter usages into total_usage.
+
+    v6.0: Replaces operator.add for total_usage to prevent duplicate
+    accumulation when subgraph states merge.
+    """
+    old = old or {}
+    new = new or {}
+    result = dict(old)
+    for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+        result[key] = (result.get(key) or 0) + (new.get(key) or 0)
+    result["estimated_cost_cny"] = (
+        (result.get("estimated_cost_cny") or 0.0)
+        + (new.get("estimated_cost_cny") or 0.0)
+    )
+    old_breakdown = result.get("model_breakdown", {}) or {}
+    new_breakdown = new.get("model_breakdown", {}) or {}
+    merged_breakdown = dict(old_breakdown)
+    for model, data in new_breakdown.items():
+        if model not in merged_breakdown:
+            merged_breakdown[model] = dict(data) if isinstance(data, dict) else data
+        else:
+            existing = merged_breakdown[model]
+            if isinstance(existing, dict) and isinstance(data, dict):
+                for k in ("prompt_tokens", "completion_tokens", "total_tokens"):
+                    existing[k] = (existing.get(k) or 0) + (data.get(k) or 0)
+    result["model_breakdown"] = merged_breakdown
+    old_usages = result.get("chapter_usages", []) or []
+    new_usages = new.get("chapter_usages", []) or []
+    result["chapter_usages"] = old_usages + new_usages
+    return result
+
+
 __all__ = [
     "add_messages",
     "merge_todos",
@@ -164,4 +197,5 @@ __all__ = [
     "merge_artifacts",
     "merge_quality_scores",
     "_add_chapters_compressed",
+    "_add_usage",
 ]
