@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 CSRF_COOKIE_NAME = "csrf_token"
 CSRF_HEADER_NAME = "X-CSRF-Token"
 
-# 免检路径
+# 免检路径 — SDK 和 API 路由全部豁免（auth 已禁用）
 _EXEMPT_PATHS = frozenset({
     "/health",
     "/ready",
@@ -27,6 +27,24 @@ _EXEMPT_PATHS = frozenset({
     "/redoc",
     "/openapi.json",
     "/api/webhooks/",
+    "/threads",
+    "/runs",
+    "/v1/",
+    "/agents",
+    "/assistants",
+    "/models",
+    "/memory",
+    "/channels",
+    "/suggestions",
+    "/input-polish",
+    "/features",
+    "/skills",
+    "/mcp",
+    "/scheduled-tasks",
+    "/store",
+    "/console",
+    "/feedback",
+    "/feishu",
 })
 
 
