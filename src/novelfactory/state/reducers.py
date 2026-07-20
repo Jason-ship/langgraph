@@ -156,6 +156,45 @@ def _add_chapters_compressed(
     return result
 
 
+def _last_value(old: Any, new: Any) -> Any:
+    """Reducer that keeps the last non-None value.
+
+    Standard LangGraph pattern for scalar fields that may be written by
+    multiple nodes in the same tick. Prevents InvalidUpdateError.
+    """
+    if new is None:
+        return old
+    return new
+
+
+def _chapter_key(chapter: dict) -> int:
+    """Extract chapter number from a chapter dict for sorting."""
+    return int(chapter.get("chapter_number", 0))
+
+
+def compress_completed_chapters(
+    completed: list[dict], keep_recent: int = 50
+) -> list[dict]:
+    """Compress completed chapters list — keep recent N full, truncate older ones.
+
+    Older chapters are reduced to {chapter_number, chapter_summary} only.
+    """
+    if len(completed) <= keep_recent:
+        return completed
+    recent = completed[-keep_recent:]
+    older = completed[:-keep_recent]
+    compressed = []
+    for ch in older:
+        if isinstance(ch, dict):
+            compressed.append({
+                "chapter_number": ch.get("chapter_number", "?"),
+                "chapter_summary": (ch.get("chapter_summary", "") or "")[:200],
+            })
+        else:
+            compressed.append(ch)
+    return compressed + recent
+
+
 def _add_usage(old: dict | None, new: dict | None) -> dict:
     """Token usage accumulator — merges chapter usages into total_usage.
 
@@ -198,4 +237,7 @@ __all__ = [
     "merge_quality_scores",
     "_add_chapters_compressed",
     "_add_usage",
+    "_last_value",
+    "_chapter_key",
+    "compress_completed_chapters",
 ]
