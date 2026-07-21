@@ -114,10 +114,16 @@ class ReviewService:
         This is optimized for the conversational mode, returning a structured
         summary that the ReviewAgent can present to the user.
 
-        NOTE: ``user_feedback`` is incorporated by the caller (ReviewAgent) in
-        the review prompt, not passed into ``evaluate()`` directly.  The
-        VerdictEngine evaluates the text itself; the caller provides feedback
-        context to the LLM before invoking this service.
+        Args:
+            chapter_text: 待评审的章节文本
+            genre: 题材分类（默认空字符串，使用通用评分标准）
+            user_feedback: 用户反馈文本。此参数由调用方（ReviewAgent）负责
+                在评审 prompt 中注入，本方法不直接传递给 ``evaluate()``。
+                ReviewAgent 应将 ``user_feedback`` 拼接到发给 LLM 的评审
+                prompt 中，使评审能感知用户的具体关注点和修改意见。
+
+        Returns:
+            包含 level、评分、反馈等结构化评审摘要的字典。
         """
         verdict = await self.evaluate(
             chapter_text=chapter_text,

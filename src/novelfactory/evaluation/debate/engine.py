@@ -91,17 +91,70 @@ class InformedDebateEngine:
         cross_briefing = cross_chapter.to_debate_briefing()
         prev_brief = prev_summary[:2000] if prev_summary else "（无前文）"
 
-        # v7.3: Swap Operation — 随机化发言顺序消除 position bias
-        # 参考 LLM-as-Judge Survey (ASU 2025, Section 4.2.1):
-        #   pairwise 场景的做法是"同一个 Judge 判两次，交换顺序，不一致判 tie"。
-        #   NovelFactory 是 3 角色辩论（非 pairwise），无法直接套用。
-        #   替代方案：每轮随机化发言顺序 + 日志记录顺序供聚合审计。
-        #   这能在统计层面消除顺序偏误，但单次无法标记 tie。
+        # 2. 首轮评审
+        editor_review, reader_review, critic_review = await self._first_round(
+            chapter_text,
+            genre,
+            genre_scoring_guide,
+            prog_briefing,
+            cross_briefing,
+            prev_brief,
+            llm,
+        )
+
+        # 3. 多轮辩论
+        (
+            editor_rebuttals,
+            reader_rebuttals,
+            critic_rebuttals,
+            debate_rounds,
+            convergence,
+            transcript_parts,
+        ) = await self._debate_rounds(
+            editor_review, reader_review, critic_review, prog_briefing, llm
+        )
+
+        # 4. 融合产出
+        return self._merge(
+            editor_review,
+            reader_review,
+            critic_review,
+            editor_rebuttals,
+            reader_rebuttals,
+            critic_rebuttals,
+            debate_rounds,
+            "\n".join(transcript_parts),
+            convergence,
+        )
+
+    # ── 首轮评审 ─────────────────────────────────────────────────────────
+
+    async def _first_round(
+        self,
+        chapter_text: str,
+        genre: str,
+        genre_scoring_guide: str,
+        prog_briefing: str,
+        cross_briefing: str,
+        prev_brief: str,
+        llm: BaseChatModel,
+    ) -> tuple[PerspectiveReview, PerspectiveReview, PerspectiveReview]:
+        """生成编辑、读者、评论员的首轮评审。
+
+        v7.3: Swap Operation — 随机化发言顺序消除 position bias。
+        参考 LLM-as-Judge Survey (ASU 2025, Section 4.2.1):
+          pairwise 场景的做法是"同一个 Judge 判两次，交换顺序，不一致判 tie"。
+          NovelFactory 是 3 角色辩论（非 pairwise），无法直接套用。
+          替代方案：每轮随机化发言顺序 + 日志记录顺序供聚合审计。
+          这能在统计层面消除顺序偏误，但单次无法标记 tie。
+
+        Returns:
+            (editor_review, reader_review, critic_review)
+        """
         speaker_order = ["editor", "reader", "critic"]
         random.shuffle(speaker_order)
         logger.info("[知情辩论] 发言顺序: %s", speaker_order)
 
-        # 2. 首轮评审（按随机顺序）
         reviews: dict[str, PerspectiveReview] = {}
         for role in speaker_order:
             if role == "editor":
@@ -160,11 +213,35 @@ class InformedDebateEngine:
                     llm,
                 )
 
-        editor_review = reviews["editor"]
-        reader_review = reviews["reader"]
-        critic_review = reviews["critic"]
+        return reviews["editor"], reviews["reader"], reviews["critic"]
 
-        # 4. 多轮辩论（3 角色）
+    # ── 多轮辩论 ─────────────────────────────────────────────────────────
+
+    async def _debate_rounds(
+        self,
+        editor_review: PerspectiveReview,
+        reader_review: PerspectiveReview,
+        critic_review: PerspectiveReview,
+        prog_briefing: str,
+        llm: BaseChatModel,
+    ) -> tuple[
+        list[Rebuttal],
+        list[Rebuttal],
+        list[Rebuttal],
+        int,
+        bool,
+        list[str],
+    ]:
+        """执行编辑、读者、评论员的多轮辩论。
+
+        包含随机化发言顺序和两种收敛判定：
+        1. 三方无异议 → 提前收敛
+        2. 连续无新增问题 → 缺省收敛
+
+        Returns:
+            (editor_rebuttals, reader_rebuttals, critic_rebuttals,
+             debate_rounds, convergence, transcript_parts)
+        """
         editor_rebuttals: list[Rebuttal] = []
         reader_rebuttals: list[Rebuttal] = []
         critic_rebuttals: list[Rebuttal] = []
@@ -252,19 +329,7 @@ class InformedDebateEngine:
                 break
 
         debate_rounds = len(editor_rebuttals)
-
-        # 5. 融合产出
-        return self._merge(
-            editor_review,
-            reader_review,
-            critic_review,
-            editor_rebuttals,
-            reader_rebuttals,
-            critic_rebuttals,
-            debate_rounds,
-            "\n".join(transcript_parts),
-            convergence,
-        )
+        return editor_rebuttals, reader_rebuttals, critic_rebuttals, debate_rounds, convergence, transcript_parts
 
     # ========== 内部方法 ==========
 
@@ -682,6 +747,23 @@ class InformedDebateEngine:
                     f"评论员视角·R{i + 1}：{rebuttal.revised_suggestions}"
                 )
 
+        # 合并 severity_labels（去重，来自首轮评审 + 各轮反驳）
+        all_severity_labels: list[str] = []
+        seen_sl: set[str] = set()
+        for labels in (
+            editor_review.severity_labels
+            + reader_review.severity_labels
+            + critic_review.severity_labels
+        ):
+            if labels not in seen_sl:
+                all_severity_labels.append(labels)
+                seen_sl.add(labels)
+        for rebuttal in editor_rebuttals + reader_rebuttals + critic_rebuttals:
+            for label in rebuttal.severity_labels:
+                if label not in seen_sl:
+                    all_severity_labels.append(label)
+                    seen_sl.add(label)
+
         return DebateReport(
             editor_review=editor_review,
             reader_review=reader_review,
@@ -694,4 +776,5 @@ class InformedDebateEngine:
             merged_suggestions="\n".join(suggestion_parts),
             convergence_achieved=convergence,
             debate_failed=False,
+            severity_labels=all_severity_labels,
         )

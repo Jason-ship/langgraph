@@ -301,6 +301,11 @@ class PerspectiveReview(BaseModel):
     issues: list[str] = Field(default_factory=list, description="问题列表")
     strengths: list[str] = Field(default_factory=list, description="亮点列表")
     suggestions: str = Field(default="", description="改进建议")
+    severity_labels: list[str] = Field(
+        default_factory=list,
+        description="高严重度问题标签（如 '严重角色问题' '严重毒点'），"
+        "用于 severity_weight 的结构化计算，避免子串匹配",
+    )
 
 
 class Rebuttal(BaseModel):
@@ -310,6 +315,10 @@ class Rebuttal(BaseModel):
     new_issues: list[str] = Field(default_factory=list, description="本轮新增问题")
     revised_suggestions: str = Field(default="", description="修正建议")
     has_dissent: bool = Field(default=True, description="是否仍有异议")
+    severity_labels: list[str] = Field(
+        default_factory=list,
+        description="本轮新增的高严重度问题标签",
+    )
 
 
 class DebateReport(BaseModel):
@@ -343,6 +352,10 @@ class DebateReport(BaseModel):
     merged_suggestions: str = Field(default="", description="全部轮次建议合并")
     convergence_achieved: bool = Field(default=False, description="是否提前收敛")
     debate_failed: bool = Field(default=False, description="辩论是否完全失败(降级)")
+    severity_labels: list[str] = Field(
+        default_factory=list,
+        description="合并去重后的高严重度问题标签（由 _merge 从各评审/反驳中收集）",
+    )
 
     @property
     def severity_weight(self) -> float:
@@ -352,6 +365,8 @@ class DebateReport(BaseModel):
         辩论本质是对章节的深入分析，发现问题是正常的，不应过度惩罚。
         v7.8-fix: 动态 CAP — 辩论收敛时惩罚可信度高，CAP 用满；
                  辩论未收敛（双方各执一词）时惩罚可信度低，CAP 折半。
+        v7.9: 优先使用 severity_labels（结构化标签），仅当标签列表为空时
+              回退到 merged_issues 子串匹配（向后兼容）。
         """
         from novelfactory.config.constants import (
             VERDICT_DEBATE_PENALTY_CAP as _CAP,
@@ -367,9 +382,16 @@ class DebateReport(BaseModel):
         cap = _CAP if self.convergence_achieved else _CAP * 0.5
 
         base = len(self.merged_issues) * _PER_ISSUE
-        # NOTE: 简单子串匹配。辩论输出为结构化 issue 描述，此处"严重"几乎总是
-        # severity 语义。若辩论格式变化引入非 severity 用法，需升级检测逻辑。
-        severe = sum(1 for i in self.merged_issues if "严重" in i or "毒点" in i) * _PER_SEVERE
+
+        # 优先使用结构化 severity_labels
+        if self.severity_labels:
+            severe = len(self.severity_labels) * _PER_SEVERE
+        else:
+            # 向后兼容：旧数据无 severity_labels 时用子串匹配
+            severe = sum(
+                1 for i in self.merged_issues if "严重" in i or "毒点" in i
+            ) * _PER_SEVERE
+
         return min(cap, base + severe)
 
 

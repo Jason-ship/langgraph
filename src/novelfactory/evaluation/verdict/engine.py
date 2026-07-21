@@ -22,6 +22,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from langchain_core.language_models import BaseChatModel
@@ -47,13 +48,14 @@ from novelfactory.evaluation.schemas import (
     CrossChapterSignals,
     DebateReport,
     EvidenceItem,
+    FeedbackBundle,
     FourDimReviewResult,
     ProgrammaticReport,
     VerdictLevel,
     VerdictResult,
 )
 from novelfactory.evaluation.utils import index_chapter_text, normalize_paragraph_refs
-from novelfactory.evaluation.verdict.calibration import CalibrationModule
+from novelfactory.evaluation.verdict.calibration import CalibrationModule, CalibrationResult
 from novelfactory.evaluation.verdict.feedback import FeedbackBuilder
 from novelfactory.schemas.review_schemas import FourDimScores
 
@@ -145,6 +147,21 @@ def _detect_quality_decay(chapter_text: str) -> float:
     except Exception as e:
         logger.debug("[质量衰减] 检测异常: %s", e)
         return 0.0
+
+
+@dataclass(frozen=True, slots=True)
+class _ToxicState:
+    """毒点分析状态 — 一次性计算供 _fuse() 内多处引用。
+
+    当 LLM 语义分析与程序化传感器对毒点判定矛盾时，
+    动态调整权重以避免关键词误报拖累总分。
+    """
+
+    llm_severe_toxic: bool
+    llm_analysis_healthy: bool
+    prog_toxic_overridden: bool
+    w_prog: float
+    w_llm_or: float
 
 
 class VerdictEngine:
@@ -520,6 +537,218 @@ class VerdictEngine:
                 )
         return result
 
+    # ── 评分融合子步骤 ──────────────────────────────────────────────────────
+
+    def _resolve_llm_scores(
+        self,
+        llm_old_reader: LLMOldReaderResult | None,
+        llm_ai_style: LLMAIStyleResult | None,
+        programmatic: ProgrammaticReport,
+    ) -> tuple[float, bool, float, bool]:
+        """解析 LLM 语义评分，失败时降级为程序化评分。
+
+        Returns:
+            (llm_old_reader_score, llm_or_valid, llm_human_like_score, llm_ais_valid)
+        """
+        # LLM 老书虫语义评分（失败时降级为程序化评分）
+        if llm_old_reader is not None and not llm_old_reader.failed:
+            llm_old_reader_score = llm_old_reader.semantic_score
+        else:
+            llm_old_reader_score = programmatic.lao_shu_chong_score
+        llm_or_valid = llm_old_reader is not None and not llm_old_reader.failed
+
+        # LLM AI味语义评分（失败时降级为程序化评分的反向）
+        llm_human_like_score = (
+            llm_ai_style.human_like_score
+            if llm_ai_style is not None and not llm_ai_style.failed
+            else (1.0 - programmatic.ai_style_score) * 100.0
+        )
+        llm_ais_valid = llm_ai_style is not None and not llm_ai_style.failed
+
+        return llm_old_reader_score, llm_or_valid, llm_human_like_score, llm_ais_valid
+
+    def _analyze_toxic_state(
+        self,
+        llm_old_reader: LLMOldReaderResult | None,
+        programmatic: ProgrammaticReport,
+        programmatic_normalized: float,
+    ) -> _ToxicState:
+        """分析毒点状态并根据 LLM/程序化一致性动态调整权重。
+
+        v7.8-fix: 毒点检测矛盾时动态调整权重。
+        当 LLM 语义分析否认程序化毒点时，程序化评分不可靠（关键词误报），
+        将其权重转移给 LLM 老书虫评分，避免程序化低分拖累总分。
+
+        都市亲情/悬疑题材中"虐主"元素可能是剧情驱动的合理冲突，
+        程序化传感器无法区分"剧情虐"和"恶意虐"。
+
+        Returns:
+            _ToxicState 数据类，包含毒点状态和调整后的权重。
+        """
+        llm_severe_toxic = (
+            llm_old_reader is not None
+            and not llm_old_reader.failed
+            and llm_old_reader.has_severe_toxic
+        )
+        llm_analysis_healthy = (
+            llm_old_reader is not None
+            and not llm_old_reader.failed
+        )
+        # 程序化毒点被 LLM 语义分析否认时，不触发一票否决。
+        prog_toxic_overridden = (
+            programmatic.has_severe_toxic
+            and llm_analysis_healthy
+            and not llm_severe_toxic
+        )
+
+        w_prog = VERDICT_WEIGHTS["programmatic"]
+        w_llm_or = VERDICT_WEIGHTS.get("llm_old_reader", 0.10)
+        if prog_toxic_overridden and programmatic_normalized < 20.0:
+            # 程序化评分极低但被 LLM 否认 → 转移权重给 LLM 老书虫
+            transfer = w_prog * 0.5  # 转移 50% 的程序化权重
+            w_prog -= transfer
+            w_llm_or += transfer
+            logger.info(
+                "[VerdictEngine] 毒点矛盾权重调整: prog=%.3f→%.3f llm_or=%.3f→%.3f",
+                VERDICT_WEIGHTS["programmatic"], w_prog,
+                VERDICT_WEIGHTS.get("llm_old_reader", 0.10), w_llm_or,
+            )
+
+        return _ToxicState(
+            llm_severe_toxic=llm_severe_toxic,
+            llm_analysis_healthy=llm_analysis_healthy,
+            prog_toxic_overridden=prog_toxic_overridden,
+            w_prog=w_prog,
+            w_llm_or=w_llm_or,
+        )
+
+    def _calculate_weighted_score(
+        self,
+        quality_score: float,
+        programmatic_normalized: float,
+        llm_old_reader_score: float,
+        llm_human_like_score: float,
+        cross_consistency: float,
+        debate_penalty: float,
+        decay_penalty: float,
+        w_prog: float,
+        w_llm_or: float,
+    ) -> float:
+        """计算加权融合分数。
+
+        读取非调整权重（quality/llm_human_like/cross_chapter/debate_penalty）
+        from VERDICT_WEIGHTS，使用经毒点分析调整后的 w_prog 和 w_llm_or。
+
+        Returns:
+            原始加权融合分数（未经校准/加分/归一化）。
+        """
+        w_quality = VERDICT_WEIGHTS["quality"]
+        w_llm_ais = VERDICT_WEIGHTS.get("llm_human_like", 0.05)
+        w_cross = VERDICT_WEIGHTS["cross_chapter"]
+        w_debate = VERDICT_WEIGHTS["debate_penalty"]
+
+        return (
+            quality_score * w_quality
+            + programmatic_normalized * w_prog
+            + llm_old_reader_score * w_llm_or
+            + llm_human_like_score * w_llm_ais
+            + cross_consistency * w_cross
+            - debate_penalty * w_debate
+            - decay_penalty  # v7.2: 质量衰减惩罚（Fiction_Eval"高开低走"）
+        )
+
+    def _apply_bonuses(
+        self,
+        final_score: float,
+        attempt_info: AttemptInfo,
+        chapter_length: int,
+    ) -> tuple[float, float, float]:
+        """应用迭代宽松加分和长度归一化。
+
+        v7.0: 迭代宽松加分 — 重写/润色次数越多，阈值越宽松。
+        v7.3: CED 长度归一化 — 消除 Verbosity Bias。
+        v7.6-fix: 仅对超过基准长度的文本做归一化，避免短文本被放大。
+        参考 Lost in Stories (微软, 2026) 的 CED 归一化思路改编。
+
+        Returns:
+            (adjusted_score, iteration_bonus, length_factor)
+        """
+        # v7.0: 迭代宽松加分
+        iteration_bonus = 0.0
+        if attempt_info.loop_count > 0 or attempt_info.refine_attempts > 0:
+            bonus = (
+                attempt_info.loop_count * VERDICT_ITERATION_BONUS_REWRITE
+                + attempt_info.refine_attempts * VERDICT_ITERATION_BONUS_REFINE
+            )
+            iteration_bonus = min(bonus, VERDICT_ITERATION_BONUS_MAX)
+        final_score += iteration_bonus
+
+        # v7.3: 长度归一化 — 消除 Verbosity Bias
+        if (
+            VERDICT_LENGTH_NORMALIZE
+            and chapter_length > VERDICT_NORMALIZE_BASE
+        ):
+            length_factor = math.log2(chapter_length / VERDICT_NORMALIZE_BASE + 1)
+            final_score = final_score / length_factor
+        else:
+            length_factor = 1.0
+
+        return final_score, iteration_bonus, length_factor
+
+    def _assemble_verdict_result(
+        self,
+        *,
+        level: VerdictLevel,
+        final_score: float,
+        quality_score: float,
+        programmatic: ProgrammaticReport,
+        cross_chapter_consistency: float,
+        debate_penalty: float,
+        four_dim: FourDimReviewResult,
+        llm_old_reader_score: float,
+        llm_or_valid: bool,
+        llm_human_like_score: float,
+        llm_ais_valid: bool,
+        llm_severe_toxic: bool,
+        llm_old_reader: LLMOldReaderResult | None,
+        llm_ai_style: LLMAIStyleResult | None,
+        feedback: FeedbackBundle,
+        cal_result: CalibrationResult,
+        cal_reason: str,
+        attempt_info: AttemptInfo,
+        combined_severe_toxic: bool,
+    ) -> VerdictResult:
+        """组装最终 VerdictResult，汇总所有评审维度的输出。"""
+        return VerdictResult(
+            level=level,
+            passed=level == VerdictLevel.PASS,
+            final_score=final_score,
+            quality_score=quality_score,
+            programmatic_score=programmatic.programmatic_score,
+            cross_chapter_consistency=cross_chapter_consistency,
+            debate_penalty=debate_penalty,
+            four_dim_scores=four_dim.four_dim_scores,
+            ai_style_score=programmatic.ai_style_score,
+            lao_shu_chong_score=programmatic.lao_shu_chong_score,
+            # v7.1: LLM 语义分析追踪
+            llm_semantic_score=llm_old_reader_score if llm_or_valid else 0.0,
+            llm_human_like_score=llm_human_like_score if llm_ais_valid else 0.0,
+            llm_severe_toxic_detected=llm_severe_toxic,
+            llm_implicit_toxic_found=(
+                llm_old_reader.implicit_toxic_found if llm_or_valid else False  # type: ignore[union-attr]
+            ),
+            llm_analysis_failed=(
+                (llm_old_reader is not None and llm_old_reader.failed)
+                or (llm_ai_style is not None and llm_ai_style.failed)
+            ),
+            feedback=feedback,
+            is_short_text=programmatic.is_short_text,
+            is_calibrated=cal_result.calibrated,
+            calibration_reason=cal_reason,
+            attempt_info=attempt_info,
+            has_severe_toxic=combined_severe_toxic,
+        )
+
     def _fuse(
         self,
         four_dim: FourDimReviewResult,
@@ -545,101 +774,39 @@ class VerdictEngine:
             1.0 - programmatic.ai_style_score
         )  # 0-100
 
-        # LLM 老书虫语义评分（失败时降级为程序化评分）
-        if llm_old_reader is not None and not llm_old_reader.failed:
-            llm_old_reader_score = llm_old_reader.semantic_score
-        else:
-            llm_old_reader_score = programmatic.lao_shu_chong_score
-        llm_or_valid = llm_old_reader is not None and not llm_old_reader.failed
-
-        # LLM AI味语义评分（失败时降级为程序化评分的反向）
-        llm_human_like_score = (
-            llm_ai_style.human_like_score
-            if llm_ai_style is not None and not llm_ai_style.failed
-            else (1.0 - programmatic.ai_style_score) * 100.0
+        # 1. 解析 LLM 语义评分（失败时降级为程序化评分）
+        llm_old_reader_score, llm_or_valid, llm_human_like_score, llm_ais_valid = (
+            self._resolve_llm_scores(llm_old_reader, llm_ai_style, programmatic)
         )
-        llm_ais_valid = llm_ai_style is not None and not llm_ai_style.failed
 
         cross_consistency = four_dim.cross_chapter_consistency
 
         debate_penalty = debate.severity_weight
 
-        # ── 毒点分析状态（一次性计算，供后续多处引用）──
-        # v7.8-fix: 毒点检测矛盾时动态调整权重。
-        # 当 LLM 语义分析否认程序化毒点时，程序化评分不可靠（关键词误报），
-        # 将其权重转移给 LLM 老书虫评分，避免程序化低分拖累总分。
-        llm_severe_toxic = (
-            llm_old_reader is not None
-            and not llm_old_reader.failed
-            and llm_old_reader.has_severe_toxic
-        )
-        llm_analysis_healthy = (
-            llm_old_reader is not None
-            and not llm_old_reader.failed
-        )
-        # 程序化毒点被 LLM 语义分析否认时，不触发一票否决。
-        # 都市亲情/悬疑题材中"虐主"元素可能是剧情驱动的合理冲突，
-        # 程序化传感器无法区分"剧情虐"和"恶意虐"。
-        prog_toxic_overridden = (
-            programmatic.has_severe_toxic
-            and llm_analysis_healthy
-            and not llm_severe_toxic
-        )
-        w_quality = VERDICT_WEIGHTS["quality"]
-        w_prog = VERDICT_WEIGHTS["programmatic"]
-        w_llm_or = VERDICT_WEIGHTS.get("llm_old_reader", 0.10)
-        w_llm_ais = VERDICT_WEIGHTS.get("llm_human_like", 0.05)
-        w_cross = VERDICT_WEIGHTS["cross_chapter"]
-        w_debate = VERDICT_WEIGHTS["debate_penalty"]
-        if prog_toxic_overridden and programmatic_normalized < 20.0:
-            # 程序化评分极低但被 LLM 否认 → 转移权重给 LLM 老书虫
-            transfer = w_prog * 0.5  # 转移 50% 的程序化权重
-            w_prog -= transfer
-            w_llm_or += transfer
-            logger.info(
-                "[VerdictEngine] 毒点矛盾权重调整: prog=%.3f→%.3f llm_or=%.3f→%.3f",
-                VERDICT_WEIGHTS["programmatic"], w_prog,
-                VERDICT_WEIGHTS.get("llm_old_reader", 0.10), w_llm_or,
-            )
-
-        final_score = (
-            quality_score * w_quality
-            + programmatic_normalized * w_prog
-            + llm_old_reader_score * w_llm_or
-            + llm_human_like_score * w_llm_ais
-            + cross_consistency * w_cross
-            - debate_penalty * w_debate
-            - decay_penalty  # v7.2: 质量衰减惩罚（Fiction_Eval"高开低走"）
+        # 2. 毒点分析 + 动态权重调整
+        toxic_state = self._analyze_toxic_state(
+            llm_old_reader, programmatic, programmatic_normalized
         )
 
-        # v7.0: 迭代宽松加分
-        iteration_bonus = 0.0
-        if attempt_info.loop_count > 0 or attempt_info.refine_attempts > 0:
-            bonus = (
-                attempt_info.loop_count * VERDICT_ITERATION_BONUS_REWRITE
-                + attempt_info.refine_attempts * VERDICT_ITERATION_BONUS_REFINE
-            )
-            iteration_bonus = min(bonus, VERDICT_ITERATION_BONUS_MAX)
-        final_score += iteration_bonus
+        # 3. 加权融合计算
+        final_score = self._calculate_weighted_score(
+            quality_score,
+            programmatic_normalized,
+            llm_old_reader_score,
+            llm_human_like_score,
+            cross_consistency,
+            debate_penalty,
+            decay_penalty,
+            toxic_state.w_prog,
+            toxic_state.w_llm_or,
+        )
 
-        # v7.3: 长度归一化 — 消除 Verbosity Bias
-        # v7.6-fix: 仅对超过基准长度的文本做归一化，避免短文本(<3000字)被放大。
-        # 参考 Lost in Stories (微软, 2026) 的 CED 归一化思路改编。
-        if (
-            VERDICT_LENGTH_NORMALIZE
-            and chapter_length > VERDICT_NORMALIZE_BASE
-        ):
-            length_factor = math.log2(chapter_length / VERDICT_NORMALIZE_BASE + 1)
-            final_score = final_score / length_factor
-        else:
-            length_factor = 1.0
-
-        # --- 决议 ---
-        # llm_severe_toxic, llm_analysis_healthy, prog_toxic_overridden 已在顶部一次性计算
+        # 4. 迭代宽松加分 + 长度归一化
+        final_score, iteration_bonus, length_factor = self._apply_bonuses(
+            final_score, attempt_info, chapter_length
+        )
 
         # --- 校准 ---
-        # v7.7-fix: 传入 LLM 毒点分析结果，使校准模块能区分
-        # "程序化传感器关键词误报"和"双方一致确认的严重毒点"
         cal_result = self._calibration.calibrate(
             final_score,
             quality_score,
@@ -647,20 +814,19 @@ class VerdictEngine:
             debate,
             cross_chapter,
             attempt_info,
-            llm_severe_toxic=llm_severe_toxic,
-            llm_analysis_healthy=llm_analysis_healthy,
+            llm_severe_toxic=toxic_state.llm_severe_toxic,
+            llm_analysis_healthy=toxic_state.llm_analysis_healthy,
         )
         final_score = cal_result.score
 
         # --- 校准后级别决策 ---
-        # v7.7-fix: 程序化毒点被 LLM 语义分析否认时已在顶部计算 prog_toxic_overridden
         level = self._decide_level(
             final_score,
             programmatic,
             attempt_info,
-            llm_severe_toxic=llm_severe_toxic,
+            llm_severe_toxic=toxic_state.llm_severe_toxic,
             four_dim_failed=four_dim.failed,  # v7.3-fix: 传参防 REFINE 死循环
-            prog_toxic_overridden=prog_toxic_overridden,
+            prog_toxic_overridden=toxic_state.prog_toxic_overridden,
         )
 
         # --- 构建反馈包（含 LLM 分析结果）---
@@ -690,40 +856,33 @@ class VerdictEngine:
                 f"{cal_reason}; " if cal_reason else "评分校准: "
             ) + f"双向次数用尽强制通过(final={final_score:.0f}分)"
 
-        # 融合 LLM 严重毒点标记（prog_toxic_overridden 已在顶部计算）
+        # 融合 LLM 严重毒点标记
         combined_severe_toxic = (
-            llm_severe_toxic
-            or (programmatic.has_severe_toxic and not prog_toxic_overridden)
+            toxic_state.llm_severe_toxic
+            or (programmatic.has_severe_toxic and not toxic_state.prog_toxic_overridden)
         )
 
-        return VerdictResult(
+        # 5. 组装最终结果
+        return self._assemble_verdict_result(
             level=level,
-            passed=level == VerdictLevel.PASS,
             final_score=final_score,
             quality_score=quality_score,
-            programmatic_score=programmatic.programmatic_score,
+            programmatic=programmatic,
             cross_chapter_consistency=cross_consistency,
             debate_penalty=debate_penalty,
-            four_dim_scores=four_dim.four_dim_scores,
-            ai_style_score=programmatic.ai_style_score,
-            lao_shu_chong_score=programmatic.lao_shu_chong_score,
-            # v7.1: LLM 语义分析追踪
-            llm_semantic_score=llm_old_reader_score if llm_or_valid else 0.0,
-            llm_human_like_score=llm_human_like_score if llm_ais_valid else 0.0,
-            llm_severe_toxic_detected=llm_severe_toxic,
-            llm_implicit_toxic_found=(
-                llm_old_reader.implicit_toxic_found if llm_or_valid else False  # type: ignore[union-attr]
-            ),
-            llm_analysis_failed=(
-                (llm_old_reader is not None and llm_old_reader.failed)
-                or (llm_ai_style is not None and llm_ai_style.failed)
-            ),
+            four_dim=four_dim,
+            llm_old_reader_score=llm_old_reader_score,
+            llm_or_valid=llm_or_valid,
+            llm_human_like_score=llm_human_like_score,
+            llm_ais_valid=llm_ais_valid,
+            llm_severe_toxic=toxic_state.llm_severe_toxic,
+            llm_old_reader=llm_old_reader,
+            llm_ai_style=llm_ai_style,
             feedback=feedback,
-            is_short_text=programmatic.is_short_text,
-            is_calibrated=cal_result.calibrated,
-            calibration_reason=cal_reason,
+            cal_result=cal_result,
+            cal_reason=cal_reason,
             attempt_info=attempt_info,
-            has_severe_toxic=combined_severe_toxic,
+            combined_severe_toxic=combined_severe_toxic,
         )
 
     def _decide_level(

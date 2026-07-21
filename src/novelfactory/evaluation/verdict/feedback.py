@@ -9,7 +9,7 @@ v7.1：新增 LLM 老书虫 + LLM AI味语义分析反馈注入。
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING
 
 from novelfactory.evaluation.schemas import (
     CrossChapterSignals,
@@ -18,6 +18,9 @@ from novelfactory.evaluation.schemas import (
     FourDimReviewResult,
     ProgrammaticReport,
 )
+
+if TYPE_CHECKING:
+    from novelfactory.evaluation.llm.schemas import LLMAIStyleResult, LLMOldReaderResult
 
 logger = logging.getLogger(__name__)
 
@@ -37,8 +40,8 @@ class FeedbackBuilder:
         cross_chapter: CrossChapterSignals,
         final_score: float,
         debate_penalty: float,
-        llm_old_reader: Any = None,
-        llm_ai_style: Any = None,
+        llm_old_reader: LLMOldReaderResult | None = None,
+        llm_ai_style: LLMAIStyleResult | None = None,
     ) -> FeedbackBundle:
         """构建统一反馈包。
 
@@ -134,8 +137,8 @@ class FeedbackBuilder:
         cross_chapter: CrossChapterSignals,
         final_score: float,
         debate_penalty: float,
-        llm_old_reader: Any = None,
-        llm_ai_style: Any = None,
+        llm_old_reader: LLMOldReaderResult | None = None,
+        llm_ai_style: LLMAIStyleResult | None = None,
     ) -> str:
         """生成评分概要行（v7.1 含 LLM 语义分析评分）。"""
         parts: list[str] = []

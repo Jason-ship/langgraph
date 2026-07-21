@@ -10,6 +10,7 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from novelfactory.agents.infra.serialization import validate_json_output
 from novelfactory.evaluation.schemas import (
     AttemptInfo,
     CrossChapterSignals,
@@ -235,9 +236,11 @@ class CalibrationRunner:
                 reviewer_llm, prompt, step_name="calibration_eval"
             )
             raw = response.content if hasattr(response, "content") else str(response)
-            import json as _json
-
-            result = _json.loads(raw)
-            return float(result.get("quality_score", sample.baseline_score))
+            parsed, err = validate_json_output(
+                raw, required_keys=["quality_score"], fail_closed=False
+            )
+            if parsed:
+                return float(parsed.get("quality_score", sample.baseline_score))
+            return sample.baseline_score
         except Exception:
             return sample.baseline_score  # 失败时返回基准分（无变化）
