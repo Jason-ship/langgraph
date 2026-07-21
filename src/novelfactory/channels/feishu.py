@@ -378,6 +378,7 @@ class FeishuChannel(Channel):
             return f"Failed to obtain the [{type}]"
 
         # Save to local uploads directory
+        # TODO: 使用 settings.storage_path_expanded 替代相对路径，避免工作目录依赖
         uploads_dir = Path(".novelfactory") / "uploads" / thread_id
         uploads_dir.mkdir(parents=True, exist_ok=True)
 

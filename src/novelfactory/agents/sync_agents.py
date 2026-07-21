@@ -24,6 +24,7 @@ from novelfactory.agents.infra import (
     get_logger,
     validate_json_output,
 )
+from novelfactory.agents.infra.retry import llm_call_with_retry
 from novelfactory.config.constants import FALLBACK_TARGET_CHAPTERS
 from novelfactory.integrations.feishu.feishu_api import (
     ensure_project_folders_idempotent,
@@ -352,7 +353,12 @@ def create_feishu_sync_agent(llm: BaseChatModel) -> Runnable:
                 f"项目名称：{project_name}\n"
                 f"章节正文（前500字）：\n{chapter_text[:500]}"
             )
-            result = agent.invoke({"messages": [("user", input_text)]})
+            result = llm_call_with_retry(
+                agent.invoke,
+                {"messages": [("user", input_text)]},
+                step_name="feishu_sync.fallback_summary",
+                fallback={"messages": []},
+            )
             response_text = extract_ai_message_text(result)
             parsed, err = validate_json_output(
                 response_text,

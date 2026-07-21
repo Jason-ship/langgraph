@@ -14,7 +14,6 @@ from novelfactory.evaluation.programmatic.cross_chapter_sensor import (
     CrossChapterSensor,
     ItemStateTracker,
     SentimentConsistencyFilter,
-    _get_item_tracker,
 )
 from novelfactory.evaluation.programmatic.old_reader_sensor import OldReaderSensor
 from novelfactory.evaluation.programmatic.runner import run_programmatic_analysis

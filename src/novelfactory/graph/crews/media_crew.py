@@ -22,7 +22,7 @@ Usage:
 from __future__ import annotations
 
 import logging
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeoutError, ThreadPoolExecutor
 from typing import Any
 
 from langchain_core.messages import AIMessage
@@ -94,15 +94,36 @@ def _parallel_media_node(state: MediaCrewLocalState) -> dict[str, Any]:
     # Use ThreadPoolExecutor for true concurrent execution (no event loop
     # creation, no RuntimeError handling, no loop leak on Windows).
     sw.write("[media] 生成插图中...\n")
-    with ThreadPoolExecutor(max_workers=2, thread_name_prefix="media_crew") as pool:
-        future_ill = pool.submit(illustrator_agent, illustrator_input)
-        future_tts = pool.submit(tts_agent, tts_input)
-        illustrator_result = future_ill.result()
-        tts_result = future_tts.result()
+    _MEDIA_TIMEOUT_SECONDS = 300
+    illustration_url = ""
+    illustration_prompt = ""
+    audio_url = ""
+    try:
+        with ThreadPoolExecutor(max_workers=2, thread_name_prefix="media_crew") as pool:
+            future_ill = pool.submit(illustrator_agent, illustrator_input)
+            future_tts = pool.submit(tts_agent, tts_input)
+            try:
+                illustrator_result = future_ill.result(timeout=_MEDIA_TIMEOUT_SECONDS)
+                illustration_url = illustrator_result.get("illustration_url", "")
+                illustration_prompt = illustrator_result.get("illustration_prompt", "")
+            except FuturesTimeoutError:
+                logger.warning("[media_crew] 插图生成超时(%ds)", _MEDIA_TIMEOUT_SECONDS)
+                sw.write("[media] ✗ 插图生成超时\n")
+            except Exception as exc:
+                logger.warning("[media_crew] 插图生成异常: %s", exc)
+                sw.write(f"[media] ✗ 插图生成异常: {exc}\n")
 
-    illustration_url = illustrator_result.get("illustration_url", "")
-    illustration_prompt = illustrator_result.get("illustration_prompt", "")
-    audio_url = tts_result.get("audio_url", "")
+            try:
+                tts_result = future_tts.result(timeout=_MEDIA_TIMEOUT_SECONDS)
+                audio_url = tts_result.get("audio_url", "")
+            except FuturesTimeoutError:
+                logger.warning("[media_crew] 配音生成超时(%ds)", _MEDIA_TIMEOUT_SECONDS)
+                sw.write("[media] ✗ 配音生成超时\n")
+            except Exception as exc:
+                logger.warning("[media_crew] 配音生成异常: %s", exc)
+                sw.write(f"[media] ✗ 配音生成异常: {exc}\n")
+    except Exception as exc:
+        logger.error("[media_crew] ThreadPoolExecutor 异常: %s", exc)
 
     # ── Phase 2: log results ────────────────────────────────────────────────────
     ill_status = "✓" if illustration_url else "✗"

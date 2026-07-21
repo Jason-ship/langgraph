@@ -101,6 +101,8 @@ def _store_type() -> str:
 
 _checkpointer_singleton: Any = None
 _store_singleton: Any = None
+_checkpointer_lock: asyncio.Lock = asyncio.Lock()
+_store_lock: asyncio.Lock = asyncio.Lock()
 
 
 async def create_checkpointer(db_url: str | None = None) -> AsyncPostgresSaver | Any:
@@ -119,108 +121,113 @@ async def create_checkpointer(db_url: str | None = None) -> AsyncPostgresSaver |
     if _checkpointer_singleton is not None:
         return _checkpointer_singleton
 
-    cp_type = _checkpoint_type()
+    async with _checkpointer_lock:
+        # Double-check after acquiring lock
+        if _checkpointer_singleton is not None:
+            return _checkpointer_singleton
 
-    if cp_type == "postgres":
-        db_url = db_url or _db_url_from_env()
-        if db_url:
-            for attempt in range(_RETRY_ATTEMPTS):
-                try:
-                    pool = AsyncConnectionPool(
-                        conninfo=db_url,
-                        max_size=_DB_MAX_SIZE,
-                        min_size=_DB_MIN_SIZE,
-                        name="checkpointer",
-                        kwargs={"autocommit": True},
-                        open=False,
-                    )
-                    await pool.open()
-                    saver = AsyncPostgresSaver(conn=pool, serde=_create_serde())
-                    await saver.setup()
-                    logger.info(
-                        "[checkpointer] AsyncPostgresSaver ready (pool size=%d..%d)",
-                        _DB_MIN_SIZE,
-                        _DB_MAX_SIZE,
-                    )
-                    _checkpointer_singleton = saver
-                    return saver
-                except Exception as exc:
-                    msg = str(exc)
-                    if "already exists" in msg and attempt < _RETRY_ATTEMPTS - 1:
-                        logger.info(
-                            "[checkpointer] DDL race (attempt %d/%d), retrying in %ds...",
-                            attempt + 1,
-                            _RETRY_ATTEMPTS,
-                            _RETRY_SLEEP_SECONDS,
+        cp_type = _checkpoint_type()
+
+        if cp_type == "postgres":
+            db_url = db_url or _db_url_from_env()
+            if db_url:
+                for attempt in range(_RETRY_ATTEMPTS):
+                    try:
+                        pool = AsyncConnectionPool(
+                            conninfo=db_url,
+                            max_size=_DB_MAX_SIZE,
+                            min_size=_DB_MIN_SIZE,
+                            name="checkpointer",
+                            kwargs={"autocommit": True},
+                            open=False,
                         )
-                        await asyncio.sleep(_RETRY_SLEEP_SECONDS)
-                        continue
-                    logger.warning(
-                        "[checkpointer] Postgres unavailable (%s), falling back",
-                        exc,
-                    )
-                    break
+                        await pool.open()
+                        saver = AsyncPostgresSaver(conn=pool, serde=_create_serde())
+                        await saver.setup()
+                        logger.info(
+                            "[checkpointer] AsyncPostgresSaver ready (pool size=%d..%d)",
+                            _DB_MIN_SIZE,
+                            _DB_MAX_SIZE,
+                        )
+                        _checkpointer_singleton = saver
+                        return saver
+                    except Exception as exc:
+                        msg = str(exc)
+                        if "already exists" in msg and attempt < _RETRY_ATTEMPTS - 1:
+                            logger.info(
+                                "[checkpointer] DDL race (attempt %d/%d), retrying in %ds...",
+                                attempt + 1,
+                                _RETRY_ATTEMPTS,
+                                _RETRY_SLEEP_SECONDS,
+                            )
+                            await asyncio.sleep(_RETRY_SLEEP_SECONDS)
+                            continue
+                        logger.warning(
+                            "[checkpointer] Postgres unavailable (%s), falling back",
+                            exc,
+                        )
+                        break
 
-    if cp_type == "redis":
-        try:
-            from urllib.parse import quote, urlparse
+        if cp_type == "redis":
+            try:
+                from urllib.parse import quote, urlparse
 
-            from langgraph.checkpoint.redis.aio import AsyncRedisSaver
+                from langgraph.checkpoint.redis.aio import AsyncRedisSaver
 
-            # v6.1: 统一从 settings 读取 Redis 配置
-            redis_url = settings.REDIS_URL or settings.redis_url
-            password = settings.REDIS_PASSWORD
-            if password and redis_url:
-                encoded_password = quote(password)
-                # urlparse 安全解析：提取 host/port/db，插入密码
-                parsed = urlparse(redis_url)
-                if parsed.hostname:
-                    db_path = (
-                        f"/{parsed.path.lstrip('/')}"
-                        if parsed.path and parsed.path != "/"
-                        else "/0"
-                    )
-                    redis_url = (
-                        f"{parsed.scheme}://:{encoded_password}"
-                        f"@{parsed.hostname}:{parsed.port or 6379}{db_path}"
-                    )
-            saver = AsyncRedisSaver.from_conn_info(
-                url=redis_url,
-                serde=_create_serde(),
-            )
-            await saver.setup()
-            logger.info("[checkpointer] AsyncRedisSaver ready (url=%s)", redis_url)
-            _checkpointer_singleton = saver
-            return saver
-        except Exception as exc:
-            logger.warning("[checkpointer] Redis unavailable (%s), falling back", exc)
+                # v6.1: 统一从 settings 读取 Redis 配置
+                redis_url = settings.REDIS_URL or settings.redis_url
+                password = settings.REDIS_PASSWORD
+                if password and redis_url:
+                    encoded_password = quote(password)
+                    # urlparse 安全解析：提取 host/port/db，插入密码
+                    parsed = urlparse(redis_url)
+                    if parsed.hostname:
+                        db_path = (
+                            f"/{parsed.path.lstrip('/')}"
+                            if parsed.path and parsed.path != "/"
+                            else "/0"
+                        )
+                        redis_url = (
+                            f"{parsed.scheme}://:{encoded_password}"
+                            f"@{parsed.hostname}:{parsed.port or 6379}{db_path}"
+                        )
+                saver = AsyncRedisSaver.from_conn_info(
+                    url=redis_url,
+                    serde=_create_serde(),
+                )
+                await saver.setup()
+                logger.info("[checkpointer] AsyncRedisSaver ready (url=%s)", redis_url)
+                _checkpointer_singleton = saver
+                return saver
+            except Exception as exc:
+                logger.warning("[checkpointer] Redis unavailable (%s), falling back", exc)
 
-    if cp_type in ("sqlite",):
-        try:
-            import aiosqlite
-            from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+        if cp_type in ("sqlite",):
+            try:
+                import aiosqlite
+                from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
-            sqlite_path = os.environ.get(
-                "SQLITE_PATH", settings.STORAGE_PATH + "/checkpoints.sqlite"
-            )
-            conn = await aiosqlite.connect(sqlite_path)
-            saver = AsyncSqliteSaver(conn, serde=_create_serde())
-            await saver.setup()
-            logger.info("[checkpointer] AsyncSqliteSaver ready")
-            _checkpointer_singleton = saver
-            return saver
-        except Exception as exc:
-            logger.warning("[checkpointer] SQLite unavailable (%s), falling back", exc)
+                sqlite_path = os.environ.get(
+                    "SQLITE_PATH", settings.STORAGE_PATH + "/checkpoints.sqlite"
+                )
+                conn = await aiosqlite.connect(sqlite_path)
+                saver = AsyncSqliteSaver(conn, serde=_create_serde())
+                await saver.setup()
+                logger.info("[checkpointer] AsyncSqliteSaver ready")
+                _checkpointer_singleton = saver
+                return saver
+            except Exception as exc:
+                logger.warning("[checkpointer] SQLite unavailable (%s), falling back", exc)
 
-    # Final fallback: InMemory (development only)
-    from langgraph.checkpoint.memory import InMemorySaver
+        # Final fallback: InMemory (development only)
+        from langgraph.checkpoint.memory import InMemorySaver
 
-    saver = InMemorySaver(serde=_create_serde())
-    logger.warning(
-        "[checkpointer] No persistent backend — using InMemorySaver (DATA LOST ON RESTART)"
-    )
-    _checkpointer_singleton = saver
-    return saver
+        saver = InMemorySaver(serde=_create_serde())
+        logger.warning(
+            "[checkpointer] No persistent backend — using InMemorySaver (DATA LOST ON RESTART)"
+        )
+        _checkpointer_singleton = saver
+        return saver
 
 
 def reset_checkpointer_singleton() -> None:
@@ -309,62 +316,67 @@ async def create_store(db_url: str | None = None) -> AsyncPostgresStore | Any:
     if _store_singleton is not None:
         return _store_singleton
 
-    st_type = _store_type()
+    async with _store_lock:
+        # Double-check after acquiring lock
+        if _store_singleton is not None:
+            return _store_singleton
 
-    if st_type == "postgres":
-        db_url = db_url or _db_url_from_env()
-        if db_url:
-            try:
-                pool = AsyncConnectionPool(
-                    conninfo=db_url,
-                    max_size=_DB_STORE_MAX_SIZE,
-                    min_size=_DB_STORE_MIN_SIZE,
-                    name="store",
-                    kwargs={"autocommit": True},
-                    open=False,
-                )
-                await pool.open()
-                embed_fn = _create_embed_function()
-                if embed_fn:
-                    dims = int(
-                        os.getenv(
-                            "EMBEDDING_DIMS",
-                            str(settings.EMBEDDING_DIMS or EMBEDDING_DIMS_DEFAULT),
+        st_type = _store_type()
+
+        if st_type == "postgres":
+            db_url = db_url or _db_url_from_env()
+            if db_url:
+                try:
+                    pool = AsyncConnectionPool(
+                        conninfo=db_url,
+                        max_size=_DB_STORE_MAX_SIZE,
+                        min_size=_DB_STORE_MIN_SIZE,
+                        name="store",
+                        kwargs={"autocommit": True},
+                        open=False,
+                    )
+                    await pool.open()
+                    embed_fn = _create_embed_function()
+                    if embed_fn:
+                        dims = int(
+                            os.getenv(
+                                "EMBEDDING_DIMS",
+                                str(settings.EMBEDDING_DIMS or EMBEDDING_DIMS_DEFAULT),
+                            )
                         )
+                        store = AsyncPostgresStore(
+                            pool,
+                            index={
+                                "embed": embed_fn,
+                                "dims": dims,
+                                "fields": ["$"],
+                            },
+                        )
+                        await store.setup()
+                        logger.info(
+                            "[store] AsyncPostgresStore ready (semantic search: dims=%d)",
+                            dims,
+                        )
+                    else:
+                        store = AsyncPostgresStore(pool)
+                        await store.setup()
+                        logger.info("[store] AsyncPostgresStore ready (no semantic search)")
+                    _store_singleton = store
+                    return store
+                except Exception as exc:
+                    logger.warning(
+                        "[store] Postgres store unavailable (%s), falling back", exc
                     )
-                    store = AsyncPostgresStore(
-                        pool,
-                        index={
-                            "embed": embed_fn,
-                            "dims": dims,
-                            "fields": ["$"],
-                        },
-                    )
-                    await store.setup()
-                    logger.info(
-                        "[store] AsyncPostgresStore ready (semantic search: dims=%d)",
-                        dims,
-                    )
-                else:
-                    store = AsyncPostgresStore(pool)
-                    await store.setup()
-                    logger.info("[store] AsyncPostgresStore ready (no semantic search)")
-                _store_singleton = store
-                return store
-            except Exception as exc:
-                logger.warning(
-                    "[store] Postgres store unavailable (%s), falling back", exc
-                )
 
-    # Fallback: InMemoryStore
-    from langgraph.store.memory import InMemoryStore
+        # Fallback: InMemoryStore
+        from langgraph.store.memory import InMemoryStore
 
-    store = InMemoryStore()
-    logger.warning(
-        "[store] No persistent store — using InMemoryStore (DATA LOST ON RESTART)"
-    )
-    _store_singleton = store
-    return store
+        store = InMemoryStore()
+        logger.warning(
+            "[store] No persistent store — using InMemoryStore (DATA LOST ON RESTART)"
+        )
+        _store_singleton = store
+        return store
 
 
 # ── Global checkpointer accessor (for GC & runtime use) ────────────────────────

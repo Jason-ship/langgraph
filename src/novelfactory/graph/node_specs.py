@@ -11,6 +11,7 @@ This eliminates the hardcoded add_node() + add_edge() calls in new_builder.py.
 from __future__ import annotations
 
 import logging
+from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -109,16 +110,17 @@ def build_check_chain(
     return chain
 
 
-_check_chain_cache: dict[str, list[str]] = {}
+_check_chain_cache: OrderedDict[str, list[str]] = OrderedDict()
 _MAX_CACHE_SIZE = 20  # v7.8: LRU 上限守卫，防无限增长
 
 
 def _get_check_chain_cache(genre: str) -> list[str] | None:
-    """Thread-safe cache get with LRU eviction."""
+    """Thread-safe cache get with LRU eviction via OrderedDict."""
     if genre not in _check_chain_cache:
         return None
-    # 读访问同时清理（简单实现：超出上限时清空整个缓存）
-    if len(_check_chain_cache) > _MAX_CACHE_SIZE:
-        _check_chain_cache.clear()
-        return None
+    # 移到末尾标记为最近使用
+    _check_chain_cache.move_to_end(genre)
+    # 超出上限时淘汰最久未使用的条目
+    while len(_check_chain_cache) > _MAX_CACHE_SIZE:
+        _check_chain_cache.popitem(last=False)
     return _check_chain_cache[genre]

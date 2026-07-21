@@ -15,10 +15,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from langgraph.graph.message import add_messages
-
-# 重新导出 LangGraph 内置 Reducer
-add_messages = add_messages
+from langgraph.graph.message import add_messages  # noqa: F401 — re-export
 
 
 def merge_todos(old: list[dict] | None, new: list[dict] | None) -> list[dict] | None:

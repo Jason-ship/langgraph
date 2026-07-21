@@ -58,6 +58,12 @@ def _wrap_fallback_llm(llm: ChatOpenAI, tier_name: str) -> ChatOpenAI:
     LangChain's RunnableWithFallbacks calls ``fallback.invoke()`` when the primary
     fails.  Uses ``object.__setattr__`` to bypass Pydantic v2 attribute validation
     (ChatOpenAI is a Pydantic model, and ``invoke`` is not a declared field).
+
+    注意：此方法通过 monkey-patch 实现 fallback 追踪，存在以下脆弱性：
+    - 依赖 LangChain ChatOpenAI 内部属性访问机制
+    - LangChain 大版本升级可能导致接口不兼容
+    - 不影响主调用链路，仅在 fallback LLM 被触发时生效
+    - 此方式是 LangChain RunnableWithFallbacks 无回调机制的妥协方案
     """
     original_invoke = llm.invoke
 
@@ -95,7 +101,9 @@ def _get_ark_config() -> dict[str, Any]:
     """
     api_key = settings.ARK_API_KEY or None
     if not api_key:
-        api_key = settings.DEEPSEEK_API_KEY or os.environ.get("OPENAI_API_KEY")
+        api_key = getattr(settings, "DEEPSEEK_API_KEY", "") or os.environ.get(
+            "OPENAI_API_KEY"
+        )
 
     base_url = (
         settings.ARK_BASE_URL or "https://ark.cn-beijing.volces.com/api/coding/v3"
@@ -116,7 +124,7 @@ def _get_deepseek_config() -> dict[str, Any]:
     v6.1: 从 settings 读取为主，os.environ 兜底。
     """
     api_key = (
-        settings.DEEPSEEK_API_KEY
+        getattr(settings, "DEEPSEEK_API_KEY", "")
         or settings.ARK_API_KEY
         or os.environ.get("OPENAI_API_KEY")
     )
@@ -126,17 +134,19 @@ def _get_deepseek_config() -> dict[str, Any]:
         "base_url": "https://api.deepseek.com",
         "max_tokens": 65536,
         "request_timeout": settings.LLM_REQUEST_TIMEOUT,
-        "max_retries": 3,
+        "max_retries": settings.MAX_RETRIES,
     }
 
 
 def _get_siliconflow_config() -> dict[str, Any]:
     """Return ChatOpenAI kwargs for 硅基流动 API (second fallback)."""
-    api_key = os.environ.get("SILICONFLOW_API_KEY") or settings.SILICONFLOW_API_KEY
+    api_key = os.environ.get("SILICONFLOW_API_KEY") or getattr(
+        settings, "SILICONFLOW_API_KEY", ""
+    )
 
     return {
         "api_key": api_key,
-        "base_url": settings.SILICONFLOW_BASE_URL,
+        "base_url": getattr(settings, "SILICONFLOW_BASE_URL", ""),
         "max_tokens": 65536,
         "request_timeout": settings.LLM_REQUEST_TIMEOUT,
         "max_retries": 3,
@@ -178,7 +188,7 @@ def _create_with_auto_fallback(
     fallbacks = [fallback1]
 
     # 硅基流动降级可选 — 仅在配置了 API key 时启用
-    siliconflow_api_key = settings.SILICONFLOW_API_KEY or os.environ.get(
+    siliconflow_api_key = getattr(settings, "SILICONFLOW_API_KEY", "") or os.environ.get(
         "SILICONFLOW_API_KEY"
     )
     if siliconflow_api_key:

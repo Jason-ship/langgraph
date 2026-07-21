@@ -6,7 +6,7 @@ import logging
 import os
 
 from novelfactory.config.constants import (
-    COMPRESS_KEEP_RECENT,
+    COMPRESS_KEEP_MESSAGES,
     FALLBACK_TARGET_CHAPTERS,
 )
 from novelfactory.integrations.feishu.feishu_api import (
@@ -38,7 +38,7 @@ def prepare_writing_node(state: NovelFactoryState) -> dict:
     )
     # v4.2: Compress to prevent checkpoint state bloat.
     # _make_record() already strips full text; this provides defense-in-depth.
-    completed = compress_completed_chapters(completed, keep_recent=COMPRESS_KEEP_RECENT)
+    completed = compress_completed_chapters(completed, keep_recent=COMPRESS_KEEP_MESSAGES)
 
     genre = state.get("genre", "")
 

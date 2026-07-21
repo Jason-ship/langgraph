@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import json
+import random
 
 from langchain_core.language_models import BaseChatModel
 
@@ -96,10 +97,8 @@ class InformedDebateEngine:
         #   NovelFactory 是 3 角色辩论（非 pairwise），无法直接套用。
         #   替代方案：每轮随机化发言顺序 + 日志记录顺序供聚合审计。
         #   这能在统计层面消除顺序偏误，但单次无法标记 tie。
-        import random as _random
-
         speaker_order = ["editor", "reader", "critic"]
-        _random.shuffle(speaker_order)
+        random.shuffle(speaker_order)
         logger.info("[知情辩论] 发言顺序: %s", speaker_order)
 
         # 2. 首轮评审（按随机顺序）
@@ -180,7 +179,7 @@ class InformedDebateEngine:
 
         for round_num in range(1, MAX_DEBATE_ROUNDS + 1):
             # v7.3: 反驳轮也随机化发言顺序
-            rebuttal_order = _random.sample(["editor", "reader", "critic"], 3)
+            rebuttal_order = random.sample(["editor", "reader", "critic"], 3)
 
             ed_rebuttal = rd_rebuttal = cr_rebuttal = None
 
@@ -228,7 +227,7 @@ class InformedDebateEngine:
                 and not cr_rebuttal.has_dissent
             ):
                 convergence = True
-                logger.info("[知情辩论] 第%d轮双方无异议，收敛", round_num)
+                logger.info("[知情辩论] 第%d轮三方无异议，收敛", round_num)
                 break
 
             # 收敛判定 2: 连续无新增问题 → 缺省收敛

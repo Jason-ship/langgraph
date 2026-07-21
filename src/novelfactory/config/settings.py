@@ -74,13 +74,13 @@ class Settings(BaseSettings):
     DB_PORT: int = Field(default=5432, description="PostgreSQL端口")
     DB_NAME: str = Field(default="novelfactory", description="数据库名")
     DB_USER: str = Field(default="noveluser", description="数据库用户")
-    DB_PASSWORD: str = Field(default="novelpass2024", description="数据库密码（Docker默认密码，生产环境请修改）")
+    DB_PASSWORD: str = Field(default="", description="数据库密码（请通过环境变量配置）")
 
     # ── Neo4j ──────────────────────────────────────────────────────────────────
     NEO4J_HOST: str = Field(default="localhost", description="Neo4j主机")
     NEO4J_PORT: int = Field(default=7687, description="Neo4j Bolt端口")
     NEO4J_USER: str = Field(default="neo4j", description="Neo4j用户名")
-    NEO4J_PASSWORD: str = Field(default="novelgraph2024", description="Neo4j密码（Docker默认密码，生产环境请修改）")
+    NEO4J_PASSWORD: str = Field(default="", description="Neo4j密码（请通过环境变量配置）")
 
     # ── Milvus ─────────────────────────────────────────────────────────────────
     MILVUS_HOST: str = Field(default="localhost", description="Milvus主机")
@@ -116,7 +116,7 @@ class Settings(BaseSettings):
     REDIS_HOST: str = Field(default="localhost", description="Redis主机")
     REDIS_PORT: int = Field(default=6379, description="Redis端口")
     REDIS_DB: int = Field(default=0, description="Redis数据库编号")
-    REDIS_PASSWORD: str = Field(default="novelredis2024", description="Redis密码（Docker默认密码，生产环境请修改）")
+    REDIS_PASSWORD: str = Field(default="", description="Redis密码（请通过环境变量配置）")
 
     # ── Timeouts ───────────────────────────────────────────────────────────────
     LLM_REQUEST_TIMEOUT: float = Field(
@@ -217,7 +217,7 @@ class Settings(BaseSettings):
 
     # ── CORS ─────────────────────────────────────────────────────────────────
     CORS_ALLOWED_ORIGINS: str = Field(
-        default="*", description="CORS 允许的源（逗号分隔）"
+        default="http://localhost:3000,http://localhost:8081", description="CORS 允许的源（逗号分隔）"
     )
 
     # ── Server ───────────────────────────────────────────────────────────────
@@ -314,6 +314,27 @@ class Settings(BaseSettings):
         # v6.1: 启动时输出配置摘要
         self._log_effective_config()
 
+        # 安全检查：生产环境密码为空时发出警告
+        if self.is_production:
+            import warnings
+
+            _pw_logger = logging.getLogger(__name__)
+            for field_name, label in [
+                ("DB_PASSWORD", "数据库"),
+                ("NEO4J_PASSWORD", "Neo4j"),
+                ("REDIS_PASSWORD", "Redis"),
+            ]:
+                if not getattr(self, field_name):
+                    _pw_logger.warning(
+                        "⚠️  生产环境 %s 密码为空，请设置对应环境变量！",
+                        label,
+                    )
+                    warnings.warn(
+                        f"生产环境 {label} 密码为空，请设置 {field_name} 环境变量",
+                        UserWarning,
+                        stacklevel=1,
+                    )
+
     def _log_effective_config(self) -> None:
         """启动时输出所有生效配置项，含来源标注。"""
         import logging
@@ -327,7 +348,7 @@ class Settings(BaseSettings):
                 kw in field_name.lower()
                 for kw in ["key", "secret", "password", "token"]
             ):
-                value = f"{str(value)[:4]}...{str(value)[-4:]}" if value else ""
+                value = "****" if len(str(value)) <= 8 else f"{str(value)[:4]}...{str(value)[-4:]}" if value else ""
             source = (
                 "ENV_OVERRIDE"
                 if field_name in _ENV_OVERRIDES.values()

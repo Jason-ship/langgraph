@@ -85,6 +85,7 @@ def reset_usage_tracking() -> None:
 
 def read_usage_tracking() -> dict:
     """Return a snapshot of accumulated usage from the shared accumulator."""
+    pricing = _get_pricing()
     with _usage_lock:
         if "calls" not in _usage_data:
             return {
@@ -97,12 +98,17 @@ def read_usage_tracking() -> dict:
             }
         p = _usage_data["prompt_tokens"]
         c = _usage_data["completion_tokens"]
+        calls_snapshot = list(_usage_data.get("calls", []))
+        model_totals: dict = _usage_data.get("model_totals", {})
+        # Deep copy model_totals to avoid mutation during iteration
+        model_totals_copy = {
+            m: {"prompt_tokens": d["prompt_tokens"],
+                "completion_tokens": d["completion_tokens"]}
+            for m, d in model_totals.items()
+        }
     total_cost = 0.0
     model_breakdown = {}
-    pricing = _get_pricing()
-    with _usage_lock:
-        model_totals: dict = _usage_data.get("model_totals", {})
-    for model, mdata in model_totals.items():
+    for model, mdata in model_totals_copy.items():
         mp = mdata["prompt_tokens"]
         mc = mdata["completion_tokens"]
         if pricing:
@@ -120,7 +126,7 @@ def read_usage_tracking() -> dict:
         }
         total_cost += cost
     return {
-        "calls": list(_usage_data.get("calls", [])),
+        "calls": calls_snapshot,
         "prompt_tokens": p,
         "completion_tokens": c,
         "total_tokens": p + c,

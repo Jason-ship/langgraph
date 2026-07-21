@@ -13,7 +13,6 @@ import asyncio
 import json as _json
 import logging
 import os
-import threading
 import warnings
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -58,6 +57,7 @@ from novelfactory.graph.checkpointer import (  # noqa: E402
     set_checkpointer_instance,
 )
 from novelfactory.graph.new_builder import compile_app  # noqa: E402
+from novelfactory.server.graph_router import GraphRouter  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -79,8 +79,9 @@ from novelfactory.server.schedulers import (  # noqa: E402
 
 # ── Globals ────────────────────────────────────────────────────
 
-_app_instance: Any = None
-_app_lock = threading.Lock()
+# v7.9: GraphRouter — dual-graph fusion (batch + conversational)
+_router_instance: GraphRouter | None = None
+_router_lock = asyncio.Lock()
 
 # Thread Store — persisted via checkpointer (official LangGraph standard)
 # Per the official langgraph-api architecture, threads are persisted in the
@@ -109,19 +110,60 @@ def _add_run_to_store(thread_id: str, run_info: dict) -> None:
 
 
 async def get_app() -> CompiledGraph:
-    """Lazy-initialized compiled graph singleton (thread-safe)."""
-    global _app_instance
-    if _app_instance is None:
-        with _app_lock:
-            if _app_instance is None:
+    """Legacy: get the batch graph (via GraphRouter for backward compatibility)."""
+    router = await get_router()
+    return router.batch_graph
+
+
+async def get_router() -> GraphRouter:
+    """Lazy-initialized GraphRouter singleton (thread-safe).
+
+    This is the single source of truth for graph initialization.
+    Compiles both the batch graph and the lead agent graph on startup,
+    sharing the same checkpointer and store.
+
+    Both ``get_app()`` and ``get_lead_graph()`` delegate to this function.
+    """
+    global _router_instance
+    if _router_instance is None:
+        async with _router_lock:
+            if _router_instance is None:
                 checkpointer = await create_checkpointer()
                 set_checkpointer_instance(checkpointer)
                 store = await create_store()
-                _app_instance = await compile_app(
+
+                # Compile batch graph (existing pipeline)
+                batch_graph = await compile_app(
                     checkpointer=checkpointer, store=store
                 )
-                logger.info("[server] App compiled and ready")
-    return _app_instance
+                logger.info("[server] Batch graph compiled and ready")
+
+                # Compile lead agent graph (conversational)
+                try:
+                    from novelfactory.graph.chat.builder import build_lead_agent_graph
+
+                    lead_graph = build_lead_agent_graph(checkpointer=checkpointer)
+                    # Attach store for long-term memory access
+                    if store is not None:
+                        lead_graph.store = store
+                    logger.info("[server] Lead agent graph compiled and ready")
+                except Exception as e:
+                    logger.warning("[server] Lead agent graph compilation failed: %s", e)
+                    lead_graph = None
+
+                _router_instance = GraphRouter(
+                    batch_graph=batch_graph,
+                    lead_graph=lead_graph,
+                )
+    return _router_instance
+
+
+async def get_lead_graph() -> CompiledGraph:
+    """Get the lead agent conversational graph."""
+    router = await get_router()
+    if router.lead_graph is None:
+        raise RuntimeError("Lead agent graph not available")
+    return router.lead_graph
 
 
 # ── Lifespan ───────────────────────────────────────────────────────────────────
@@ -143,12 +185,34 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             )
         )
         _nf_logger.addHandler(_nf_handler)
-    # 预热 graph 并挂载到 app.state，供 periodic_gc 访问 checkpointer
-    app.state.graph = await get_app()
+    # 预热 GraphRouter（编译 batch + lead 双图），挂载到 app.state
+    router = await get_router()
+    app.state.graph = router.batch_graph
+    app.state.router = router
     # 启动时清理异常 cron（防止数据库残留的异常 cron 自动执行）
-    store = getattr(app.state.graph, "store", None)
+    store = router.store
     if store:
         await cleanup_abnormal_crons(store)
+
+    # ── 初始化 DeerFlow 兼容性组件 ─────────────────────────────────────────
+    try:
+        from novelfactory.agents.registry import AgentRegistry as _AgentRegistry
+
+        _AgentRegistry.init_defaults()
+        logger.info(
+            "[server] AgentRegistry initialized with %d agents",
+            len(_AgentRegistry.list()),
+        )
+    except Exception:
+        logger.debug("[server] AgentRegistry init skipped", exc_info=True)
+
+    try:
+        from novelfactory.skills.manager import SkillManager as _SkillManager
+
+        _SkillManager.init_defaults()
+        logger.info("[server] SkillManager initialized")
+    except Exception:
+        logger.debug("[server] SkillManager init skipped", exc_info=True)
 
     # ── 启动渠道服务 ──────────────────────────────────────────────────────
     channel_service = None
@@ -181,6 +245,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logger.exception("[server] Failed to start channel service")
 
     gc_task = asyncio.create_task(periodic_gc(app))
+
     cron_task = asyncio.create_task(cron_scheduler(app))
     yield
     cron_task.cancel()
@@ -350,11 +415,14 @@ from novelfactory.server.routes.store import router as store_router  # noqa: E40
 from novelfactory.server.routes.suggestions import (  # noqa: E402
     router as suggestions_router,
 )
+from novelfactory.server.routes.branches import router as branches_router  # noqa: E402
 from novelfactory.server.routes.threads import router as threads_router  # noqa: E402
+from novelfactory.server.routes.compact import router as compact_router  # noqa: E402
+from novelfactory.server.routes.token_usage import router as token_usage_router  # noqa: E402
+from novelfactory.server.routes.regenerate import router as regenerate_router  # noqa: E402
 from novelfactory.server.stub_router import router as stub_router  # noqa: E402
 
 app.include_router(assistants_router)
-app.include_router(stub_router)
 app.include_router(channel_connections_router)
 app.include_router(console_router)
 app.include_router(crons_router)
@@ -368,7 +436,21 @@ app.include_router(runs_router)
 app.include_router(store_router)
 app.include_router(suggestions_router)
 app.include_router(threads_router)
+app.include_router(branches_router)
+app.include_router(compact_router)
+app.include_router(token_usage_router)
+app.include_router(regenerate_router)
 app.include_router(time_travel_router)
+
+# ── DeerFlow Agent & Skills Routes ────────────────────────────────────────────
+from novelfactory.server.routes.agents import router as agents_router  # noqa: E402
+from novelfactory.server.routes.skills import router as skills_router  # noqa: E402
+
+app.include_router(agents_router)
+app.include_router(skills_router)
+
+# ── Stub Router (MUST be last — catches unimplemented routes as fallback) ─────
+app.include_router(stub_router)
 
 # ── Static Files ──────────────────────────────────────────────────────────────
 import os as _os

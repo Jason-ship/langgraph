@@ -126,6 +126,20 @@ def _process_stream_event(event: dict) -> list[dict]:
     if event_type == "end":
         return [_format_sse("end", {"status": "completed"})]
 
+    # ── Custom events (from StreamWriter / node custom events) ──
+    # DeerFlow frontend expects custom events with "type" and "data" fields.
+    # LangGraph astream_events v2 delivers custom events as:
+    #   {"type": "custom", "name": "task_started", "data": {...}}
+    # We forward them as SSE "custom" events for the frontend to consume.
+    if event_type == "custom":
+        name = event.get("name", "unknown")
+        payload = {
+            "type": name,
+            "name": name,
+            "data": data,
+        }
+        return [_format_sse("custom", payload)]
+
     return []
 
 
@@ -193,7 +207,18 @@ async def _create_run_impl(thread_id: str, run: RunRequest) -> Response:
     """Shared implementation for creating a run on a thread."""
     # Lazy imports to avoid circular dependency with app.py
     from novelfactory.config.constants import RECURSION_LIMIT
-    from novelfactory.server.app import _run_store, get_app
+    from novelfactory.server.app import _add_run_to_store, get_router, get_app
+
+    # Determine which graph to use based on assistant_id
+    assistant_id = getattr(run, "assistant_id", "novelfactory") or "novelfactory"
+
+    if assistant_id == "lead_agent":
+        router = await get_router()
+        graph = router.get_graph("lead_agent")
+        logger.info("[run] Using lead agent graph for thread=%s", thread_id)
+    else:
+        graph = await get_app()
+        logger.info("[run] Using batch graph for thread=%s (assistant=%s)", thread_id, assistant_id)
 
     config: RunnableConfig = {
         "configurable": {"thread_id": thread_id},
@@ -210,12 +235,9 @@ async def _create_run_impl(thread_id: str, run: RunRequest) -> Response:
     }
 
     run_id = str(uuid.uuid4())
-    graph = await get_app()
     input_data = await _resolve_input_data(graph, config, run.input or {}, thread_id)
 
     # Track the run — 使用上限守卫的 _add_run_to_store 替代直接 append
-    from novelfactory.server.app import _add_run_to_store
-
     run_info = {"run_id": run_id, "thread_id": thread_id, "status": "pending"}
     _add_run_to_store(thread_id, run_info)
 
@@ -249,6 +271,23 @@ async def _create_run_impl(thread_id: str, run: RunRequest) -> Response:
         )
 
 
+_SUBAGENT_NODES: frozenset[str] = frozenset({
+    "story_agent",
+    "writing_agent",
+    "review_agent",
+    "chat_agent",
+    "bridge_agent",
+})
+
+_NODE_DESCRIPTIONS: dict[str, str] = {
+    "story_agent": "故事创作",
+    "writing_agent": "章节写作",
+    "review_agent": "内容审查",
+    "chat_agent": "对话回复",
+    "bridge_agent": "批量管线委托",
+}
+
+
 async def _stream_run(
     graph: CompiledGraph,
     input_data: dict | Command,
@@ -257,9 +296,19 @@ async def _stream_run(
     thread_id: str,
     context: NovelContext | None = None,
 ) -> AsyncGenerator[dict, None]:
-    """Stream graph execution events via SSE."""
+    """Stream graph execution events via SSE.
+
+    Integrates SubtaskTracker to emit ``custom`` SSE events when sub-agent
+    nodes start and complete, enabling the DeerFlow frontend to display
+    real-time sub-task progress indicators.
+    """
+    from novelfactory.server.subtask_tracker import SubtaskTracker
+
     yield _format_sse("metadata", {"run_id": run_id, "thread_id": thread_id})
     tracker = StreamStateTracker()
+    subtask_tracker = SubtaskTracker(run_id, thread_id)
+    # Track which sub-agent subtasks have been emitted (avoid duplicates)
+    active_subtasks: set[str] = set()
 
     try:
         async for event in graph.astream_events(
@@ -270,7 +319,10 @@ async def _stream_run(
         ):
             for sse_msg in _process_stream_event(event):
                 if sse_msg.get("event") == "messages":
-                    data_obj = json.loads(sse_msg["data"])
+                    try:
+                        data_obj = json.loads(sse_msg["data"])
+                    except (json.JSONDecodeError, TypeError, KeyError):
+                        data_obj = None
                     msg_list = data_obj if isinstance(data_obj, list) else []
                     if msg_list and isinstance(msg_list[0], dict):
                         msg_id = msg_list[0].get("id", "")
@@ -282,10 +334,49 @@ async def _stream_run(
                 data = event.get("data", {})
                 if isinstance(data, dict):
                     for node_name, node_update in data.items():
+                        # ── SubtaskTracker: emit start events for sub-agent nodes ──
+                        subtask_id = f"{run_id}-{node_name}"
+                        if node_name in _SUBAGENT_NODES and subtask_id not in active_subtasks:
+                            active_subtasks.add(subtask_id)
+                            description = _NODE_DESCRIPTIONS.get(
+                                node_name, f"执行 {node_name}"
+                            )
+                            task_event = subtask_tracker.start_subtask(
+                                subtask_id=subtask_id,
+                                agent_type=node_name,
+                                description=description,
+                            )
+                            yield task_event
+
                         if isinstance(node_update, dict) and tracker.update_from_state(
                             node_update
                         ):
                             yield _format_sse("progress", tracker.to_progress_event())
+
+            # ── SubtaskTracker: emit completion events from values ──
+            if event.get("type") == "values":
+                values = event.get("data", {})
+                if isinstance(values, dict):
+                    current_agent = values.get("current_agent", "")
+                    if current_agent in _SUBAGENT_NODES:
+                        subtask_id = f"{run_id}-{current_agent}"
+                        if subtask_id in active_subtasks:
+                            task_event = subtask_tracker.update_subtask(
+                                subtask_id=subtask_id,
+                                status="completed",
+                            )
+                            if task_event:
+                                yield task_event
+                            active_subtasks.discard(subtask_id)
+
+        # Mark any remaining active subtasks as completed
+        for subtask_id in active_subtasks:
+            task_event = subtask_tracker.update_subtask(
+                subtask_id=subtask_id,
+                status="completed",
+            )
+            if task_event:
+                yield task_event
 
         for sse_msg in await _detect_stream_interrupts(graph, config, thread_id):
             yield sse_msg

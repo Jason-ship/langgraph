@@ -29,6 +29,8 @@ from novelfactory.channels.store import ChannelStore
 
 logger = logging.getLogger(__name__)
 
+# 与 config.constants 中的根图 5000 / 子图 200 不同，这是 ChannelManager
+# 用于 IM 对话的递归上限，IM 交互需要更短的递归以避免长时间阻塞。
 DEFAULT_RECURSION_LIMIT = 100
 STREAM_UPDATE_MIN_INTERVAL_SECONDS = 1.0
 STREAM_UPDATE_MIN_CHARS = 60
@@ -102,24 +104,6 @@ def _extract_response_text(result: dict | list) -> str:
                 if text:
                     return text
     return ""
-
-
-def _extract_artifacts(result: dict | list) -> list[str]:
-    """Extract artifact paths from the last AI response cycle."""
-    if isinstance(result, list):
-        messages = result
-    elif isinstance(result, dict):
-        messages = result.get("messages", [])
-    else:
-        return []
-
-    artifacts: list[str] = []
-    for msg in reversed(messages):
-        if not isinstance(msg, dict):
-            continue
-        if msg.get("type") == "human":
-            break
-    return artifacts
 
 
 def _human_input_message(content: str) -> dict[str, Any]:

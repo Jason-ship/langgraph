@@ -63,13 +63,24 @@ _SEVERE_TOXIC_TYPES = {"NTR", "NUE_ZHU", "SHENGMU"}
 
 
 def set_reviewer_llm(llm: BaseChatModel) -> None:
-    """设置全局评审 LLM 实例。"""
+    """设置全局评审 LLM 实例。
+
+    .. deprecated::
+        此函数存在竞态条件（多线程/并发请求互相覆盖）。
+        请改用 ``llm_old_reader_analysis(..., llm=my_llm)`` 直接传入 LLM 实例。
+        保留此函数仅为向后兼容，将在未来版本移除。
+    """
     global _REVIEWER_LLM  # noqa: PLW0603
     _REVIEWER_LLM = llm
 
 
 def get_reviewer_llm() -> BaseChatModel | None:
-    """获取全局评审 LLM 实例。"""
+    """获取全局评审 LLM 实例。
+
+    .. deprecated::
+        此函数依赖全局状态，存在竞态条件。
+        请改用调用方自行持有 LLM 实例。保留仅为向后兼容。
+    """
     return _REVIEWER_LLM
 
 

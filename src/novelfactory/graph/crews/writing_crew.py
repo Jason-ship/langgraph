@@ -73,73 +73,54 @@ from novelfactory.state.novel_state import _add_usage, _last_value
 class WritingCrewLocalState(BaseCrewState):
     """Local state for the Writing Crew subgraph (extends BaseCrewState).
 
-    Inherits ``messages``, ``crew_result``, ``crew_error`` from BaseCrewState.
-
-    Routing is driven by verdict_router reading verdict_result.level.
-    programmatic_score = (lao_shu_chong_score / 100) * (1 - ai_style_score)
-
-    NOTE: chapter_draft is a top-level field (not nested in crew_result) because
-    LangGraph's dict reducer requires top-level fields to be updated atomically.
-    Nested dict merges (crew_result) have reducer ambiguity with RunnableLambda nodes.
+    Design principles:
+    - Persistent fields: explicitly declared, propagated to parent via _last_value
+    - Temporary fields: prefixed with _temp_, cleared at subgraph exit
+    - Routing fields: read by verdict_router, must be at top level
     """
 
+    # ── Persistent Fields (propagated to parent via _last_value) ──────────────
     current_chapter: int
     target_chapters: int
-    loop_count: int  # consecutive score<60 attempts on current chapter
-    quality_score: float  # 四维评分，来自 verdict_engine；被 verdict_router 读取
-    chapter_draft: str  # top-level for reliable reducer updates (not in crew result)
-    refine_attempts: (
-        int  # refine attempts for current chapter; 80-89: max 1, 60-79: max 2
-    )
-    human_guidance: str  # user-provided revision guidance (set via interrupt)
-    writer_context: (
-        str  # Context from ContextBuilder subgraph (set by context_builder_node)
-    )
-    # v6.1 P3-10: 允许 Send 并行分发时传递完整上下文
-    thread_id: str  # 父图 thread_id，用于并行写作时的上下文隔离
-    extracted: dict  # Extracted state from StateExtractor subgraph (set by state_extractor_node)
-    completed_chapters: Annotated[
-        list, _last_value
-    ]  # v6.1-fix: use _last_value to prevent exponential growth with operator.add
-
-    # === v5.0 评分系统字段 ===
-    ai_style_score: float  # AI味指数，0-1，越低越好，≤0.3合格
-    lao_shu_chong_score: float  # 老书虫视角评分，0-100，越高越好，≥70合格
-    # v6.1: composite_score 已移除，统一使用 verdict_result.programmatic_score
-    toxic_points: list[str]  # 检测到的毒点类型列表
-    shuangdian_points: list[str]  # 检测到的爽点类型列表
-    guide_references: list[dict]  # 引用的写作指南
-    ai_style_fix: str  # AI味修改建议
-    lao_shu_chong_fix: str  # 老书虫视角修改建议
-    # v5.11: 辩论定性评审字段（editor↔reader debate，传递给 refiner/writer）
-    debate_issues: list[str]  # 编辑+读者合并问题列表
-    debate_strengths: list[str]  # 编辑+读者合并亮点列表
-    debate_suggestions: str  # 编辑+读者合并改进建议
-    # v5.1.1-fix: 声明 total_usage 使 _exit_for_chapter 的顶层返回值
-    # 能通过子图→父图合并被 NovelFactoryState._add_usage reducer 处理。
-    # 之前未声明导致所有写作章节的 token 数据被 LangGraph 静默丢弃。
+    loop_count: int
+    quality_score: float
+    chapter_draft: str
+    refine_attempts: int
+    human_guidance: str
+    writer_context: str
+    thread_id: str
+    extracted: dict
+    completed_chapters: Annotated[list, _last_value]
+    ai_style_score: float
+    lao_shu_chong_score: float
     total_usage: Annotated[dict, _add_usage]
-    # v6.0: 短文本标记 — 程序化子Agent都无法分析时绕过程序化评分
-    is_short_text: bool
-    # v6.0.1 P0-fix: 以下字段必须声明，否则 Send 并行分发时
-    # LangGraph 会将根图→子图的这些字段静默丢弃
-    story_outline: str  # 主线大纲+金手指体系
-    character_setting: str  # 角色性格/说话方式设计
-    world_setting: str  # 世界观设定
-    chapter_outlines: str  # 章节大纲
-    review_result: dict  # 上一轮评审结果（reviewer→writer 反馈链）
-    # v6.3: 统一评审决议（evaluation 模块唯一权威产出）
-    verdict_result: dict  # VerdictResult.model_dump()
-    final_score: float  # 融合后最终评分（从 verdict_result 同步）
-    # v6.3: 章节写作计划（chapter_planner 节点产出）
-    chapter_plan: dict  # ChapterPlan.model_dump()
-    # v7.3: Critic 前置大纲评估
-    critic_assessment: str  # PASS / FLAG / FAIL
-    critic_feedback: str  # 评估反馈文本
-    # v6.3: 辩论记录和程序化指标（翻修 prompt 消费）
-    debate_transcript: str  # 完整辩论记录
-    ai_style_metrics_brief: str  # AI味 8 维指标摘要
-    cross_chapter_brief: str  # 跨章一致性摘要
+    review_result: dict
+    verdict_result: dict
+    final_score: float
+    chapter_plan: dict
+    story_outline: str
+    character_setting: str
+    world_setting: str
+    chapter_outlines: str
+
+    # ── Temporary Fields (not persisted, cleared at subgraph exit) ───────────
+    # These fields are used for in-flight communication between writing nodes
+    # and should NOT be propagated to the parent graph checkpoint.
+    # They are prefixed with _temp_ to distinguish from persistent fields.
+    _temp_toxic_points: list[str]
+    _temp_shuangdian_points: list[str]
+    _temp_guide_references: list[dict]
+    _temp_ai_style_fix: str
+    _temp_lao_shu_chong_fix: str
+    _temp_debate_issues: list[str]
+    _temp_debate_strengths: list[str]
+    _temp_debate_suggestions: str
+    _temp_is_short_text: bool
+    _temp_critic_assessment: str
+    _temp_critic_feedback: str
+    _temp_debate_transcript: str
+    _temp_ai_style_metrics_brief: str
+    _temp_cross_chapter_brief: str
 
 
 # ── Graph Builder ─────────────────────────────────────────────────────────────

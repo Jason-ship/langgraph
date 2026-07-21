@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from langchain_core.messages import AIMessage
@@ -42,10 +43,6 @@ logger = get_logger(__name__)
 _DEFAULT_MAX_REFINE = 2
 
 
-# v6.1: 模块级 WallTimeTracker
-_wall_tracker = WallTimeTracker()
-
-
 async def verdict_engine_node(state: dict[str, Any]) -> dict[str, Any]:
     """verdict_engine 图节点 (async) — 替代 _chapter_reviewer_node。
 
@@ -60,7 +57,8 @@ async def verdict_engine_node(state: dict[str, Any]) -> dict[str, Any]:
     """
     cr = state.get("crew_result", {})
     current_ch = state.get("current_chapter", cr.get("current_chapter_number", 1))
-    _wall_tracker.start("verdict_engine", phase="writing", chapter=current_ch)
+    wall_tracker = WallTimeTracker()
+    wall_tracker.start("verdict_engine", phase="writing", chapter=current_ch)
 
     loop_count = state.get("loop_count", 0)
     # v6.3-fix: 从 crew_result._rewrite_count 读取备份，修复子图 loop_count 丢失
@@ -128,7 +126,7 @@ async def verdict_engine_node(state: dict[str, Any]) -> dict[str, Any]:
             cross_chapter_consistency=VERDICT_REFINE_THRESHOLD,
             debate_penalty=0.0,
             feedback=FeedbackBundle(
-                summary=f"评审异常降级: {e}",
+                score_summary=f"评审异常降级: {e}",
                 toxic_points=[],
                 shuangdian_points=[],
                 debate_issues=[],
@@ -210,10 +208,10 @@ async def verdict_engine_node(state: dict[str, Any]) -> dict[str, Any]:
     state_update["human_guidance"] = state.get("human_guidance", "")
 
     # v6.1: 记录 WallTime 追踪数据
-    _wall_tracker.end("verdict_engine")
-    if _wall_tracker.to_dict().get("records"):
-        state_update["wall_time_data"] = __import__("json").dumps(
-            _wall_tracker.to_dict()
+    wall_tracker.end("verdict_engine")
+    if wall_tracker.to_dict().get("records"):
+        state_update["wall_time_data"] = json.dumps(
+            wall_tracker.to_dict()
         )
 
     # Chat UI message

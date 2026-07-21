@@ -1,6 +1,7 @@
 """NovelFactory agents package."""
 
 from novelfactory.agents.infra import *  # noqa: F403 — backward compat for agent_infra
+from novelfactory.agents.registry import AgentDefinition, AgentRegistry
 from novelfactory.agents.media_agents import (
     IllustratorOutput,
     TTSGeneratorOutput,
@@ -38,6 +39,9 @@ from novelfactory.agents.writing_agents import (
 )
 
 __all__ = [
+    # Agent Registry
+    "AgentRegistry",
+    "AgentDefinition",
     # Setup
     "create_world_builder_agent",
     "create_character_designer_agent",

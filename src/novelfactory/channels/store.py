@@ -78,8 +78,9 @@ class ChannelStore:
 
     def get_thread_id(self, channel_name: str, chat_id: str, topic_id: str | None = None) -> str | None:
         """Look up the thread_id for a given IM conversation/topic."""
-        entry = self._data.get(self._key(channel_name, chat_id, topic_id))
-        return entry["thread_id"] if entry else None
+        with self._lock:
+            entry = self._data.get(self._key(channel_name, chat_id, topic_id))
+            return entry["thread_id"] if entry else None
 
     def set_thread_id(
         self,
@@ -126,16 +127,17 @@ class ChannelStore:
 
     def list_entries(self, channel_name: str | None = None) -> list[dict[str, Any]]:
         """List all stored mappings, optionally filtered by channel."""
-        results = []
-        for key, entry in self._data.items():
-            parts = key.split(":", 2)
-            ch = parts[0]
-            chat = parts[1] if len(parts) > 1 else ""
-            topic = parts[2] if len(parts) > 2 else None
-            if channel_name and ch != channel_name:
-                continue
-            item: dict[str, Any] = {"channel_name": ch, "chat_id": chat, **entry}
-            if topic is not None:
-                item["topic_id"] = topic
-            results.append(item)
-        return results
+        with self._lock:
+            results = []
+            for key, entry in self._data.items():
+                parts = key.split(":", 2)
+                ch = parts[0]
+                chat = parts[1] if len(parts) > 1 else ""
+                topic = parts[2] if len(parts) > 2 else None
+                if channel_name and ch != channel_name:
+                    continue
+                item: dict[str, Any] = {"channel_name": ch, "chat_id": chat, **entry}
+                if topic is not None:
+                    item["topic_id"] = topic
+                results.append(item)
+            return results

@@ -49,22 +49,22 @@ def verdict_router(state: dict[str, Any]) -> str:
         return "chapter_refiner"
 
     # ── REWRITE: 保存最佳版本，防止耗尽后垃圾版本冲掉高分版 ──
-    # 读取当前章节文本和已有的最佳记录
+    # NOTE: 此处直接修改 mutable state dict 是 LangGraph 的已知设计模式。
+    # 在 conditional_edge router 中，返回值仅用于路由（节点名），
+    # 无法通过返回 dict 写入 state。LangGraph 在执行期间传入的 state dict
+    # 是 mutable 的，直接修改会被持久化到 checkpoint，这是官方推荐的
+    # "side-effect in router" 模式（参见 LangGraph docs: Side effects in nodes）。
+    # 如果未来 LangGraph 提供 Command-based router state mutation API，应迁移过去。
     cr = state.get("crew_result", {}) or {}
     chapter_text = state.get("chapter_draft", "") or cr.get(
         "refined_chapter", cr.get("chapter_draft", "")
     )
     best_quality = state.get("best_version_quality", 0.0)
-    # 如果当前质量分 > 历史最佳，替换
     if quality_score > best_quality and chapter_text:
         logger.info(
             "[verdict_router] REWRITE: 保存最佳版本 (quality=%.1f > best=%.1f)",
             quality_score, best_quality,
         )
-        # 通过 command 方式写入 state — 返回 dict 会被 LangGraph 自动 merge
-        # 但 router 是 conditional edge 只返回节点名，不能直接改 state。
-        # 改用 side-effect 写入: 用全局变量存，或直接修改 mutable state。
-        # 实际上 state 是 mutable dict，直接修改即可。
         state["best_version_text"] = chapter_text
         state["best_version_quality"] = quality_score
 

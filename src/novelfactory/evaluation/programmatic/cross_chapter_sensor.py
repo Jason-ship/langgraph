@@ -29,18 +29,6 @@ _MIN_SENTENCE_COUNT = 3  # 最少句数
 # 句子分隔符
 _SENTENCE_SPLIT_PATTERN = r"[。！？\n]+"
 
-# ── v7.3: 物品状态追踪器模块级单例 ──
-_item_tracker_instance: ItemStateTracker | None = None
-
-
-def _get_item_tracker() -> ItemStateTracker:
-    """获取 ItemStateTracker 的模块级单例（保持跨章状态连续性）。"""
-    global _item_tracker_instance
-    if _item_tracker_instance is None:
-        _item_tracker_instance = ItemStateTracker()
-    return _item_tracker_instance
-
-
 # ── v7.3: ItemStateTracker 用的预编译正则（避免方法内 import re 的作用域问题）──
 _DESTROY_RE = re.compile(
     r"碎|毁|断|裂|崩|焚|熔|爆|烂|破|废|灭|化|"
@@ -157,6 +145,7 @@ class CrossChapterSensor:
         prev_chapters_summary: str = "",
         character_setting: str = "",
         story_outline: str = "",
+        tracker: ItemStateTracker | None = None,
     ) -> CrossChapterSignals:
         """执行跨章一致性信号采集。
 
@@ -239,8 +228,8 @@ class CrossChapterSensor:
         )
 
         # v7.3: 物品状态追踪（纯代码，零 LLM）
-        # 使用模块级单例保持跨章状态连续性
-        item_tracker = _get_item_tracker()
+        # 每次调用创建独立实例，避免跨请求/项目的状态污染
+        item_tracker = tracker if tracker is not None else ItemStateTracker()
         item_issues = item_tracker.update_from_chapter(chapter_text)
         if item_issues:
             signals.item_state_issues = item_issues

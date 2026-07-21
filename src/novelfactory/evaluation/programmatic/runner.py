@@ -9,7 +9,10 @@ from __future__ import annotations
 import logging
 
 from novelfactory.evaluation.programmatic.ai_style_sensor import AIStyleSensor
-from novelfactory.evaluation.programmatic.cross_chapter_sensor import CrossChapterSensor
+from novelfactory.evaluation.programmatic.cross_chapter_sensor import (
+    CrossChapterSensor,
+    ItemStateTracker,
+)
 from novelfactory.evaluation.programmatic.old_reader_sensor import (
     GENRE_SEVERE_TOXIC_EXEMPT,
     OldReaderSensor,
@@ -57,6 +60,7 @@ def run_programmatic_analysis(
     prev_chapters_summary: str = "",
     character_setting: str = "",
     story_outline: str = "",
+    tracker: ItemStateTracker | None = None,
 ) -> tuple[ProgrammaticReport, CrossChapterSignals]:
     """执行全部程序化分析，返回统一报告。
 
@@ -67,6 +71,7 @@ def run_programmatic_analysis(
         prev_chapters_summary: 前文摘要
         character_setting: 角色设定
         story_outline: 故事大纲
+        tracker: 可选的物品状态追踪器实例（每次调用应传入独立实例，避免跨请求状态污染）
 
     Returns:
         (ProgrammaticReport, CrossChapterSignals)
@@ -84,6 +89,8 @@ def run_programmatic_analysis(
     )
 
     # === 3. 跨章分析 ===
+    # 每次调用创建独立的 ItemStateTracker，避免跨请求/项目状态污染
+    item_tracker = tracker if tracker is not None else ItemStateTracker()
     cross_sensor = CrossChapterSensor()
     cross_signals = cross_sensor.analyze(
         chapter_text=chapter_text,
@@ -91,6 +98,7 @@ def run_programmatic_analysis(
         prev_chapters_summary=prev_chapters_summary,
         character_setting=character_setting,
         story_outline=story_outline,
+        tracker=item_tracker,
     )
 
     # === 融合 ===

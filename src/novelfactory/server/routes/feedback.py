@@ -42,6 +42,8 @@ class FeedbackStatsResponse(BaseModel):
 
 
 # ── 内存存储（简化版） ──
+# TODO: 当前使用纯内存存储，进程重启后数据丢失。生产环境应迁移至持久化存储
+# （如 PostgreSQL / Redis / MinIO），可通过 FeedbackRepository 封装实现。
 
 _feedback_store: list[dict] = []
 

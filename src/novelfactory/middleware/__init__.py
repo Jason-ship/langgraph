@@ -32,15 +32,22 @@ from novelfactory.middleware.safety_detectors import (
     SafetyTerminationDetector,
     default_detectors,
 )
-from novelfactory.middleware.safety_middleware import check_safety_termination as check_safety
+from novelfactory.middleware.safety_middleware import (
+    check_safety_termination as check_safety,
+)
 from novelfactory.middleware.skill_injection import SkillInjectionMiddleware
 from novelfactory.middleware.summarization import SummarizationMiddleware
-from novelfactory.middleware.token_usage import AggregatedUsage, TokenUsage, TokenUsageTracker
 from novelfactory.middleware.todo_list import TodoListMiddleware
+from novelfactory.middleware.token_usage import (
+    AggregatedUsage,
+    TokenUsage,
+    TokenUsageTracker,
+)
 from novelfactory.middleware.wrapper import with_middleware
 
 __all__ = [
     "get_middleware_chain",
+    "get_lead_agent_middleware",
     "with_middleware",
     "MiddlewareChain",
     "LoopDetector",
@@ -66,6 +73,7 @@ __all__ = [
 ]
 
 _middleware_chain: MiddlewareChain | None = None
+_lead_agent_middleware_chain: MiddlewareChain | None = None
 
 
 def get_middleware_chain() -> MiddlewareChain:
@@ -86,3 +94,21 @@ def get_middleware_chain() -> MiddlewareChain:
         chain.add(TodoListMiddleware())
         _middleware_chain = chain
     return _middleware_chain
+
+
+def get_lead_agent_middleware() -> MiddlewareChain:
+    """获取 Lead Agent 中间件链（懒初始化单例）。
+
+    专为 Lead Agent 对话式 Agent 图设计，不包含 LargeFileStorage/TodoList
+    等批量管线专用中间件，但包含 SkillInjection 和 Summarization。
+    """
+    global _lead_agent_middleware_chain
+    if _lead_agent_middleware_chain is None:
+        from novelfactory.skills.loader import SkillLoader
+
+        chain = MiddlewareChain()
+        loader = SkillLoader()
+        chain.add(SkillInjectionMiddleware(loader))
+        chain.add(SummarizationMiddleware())
+        _lead_agent_middleware_chain = chain
+    return _lead_agent_middleware_chain

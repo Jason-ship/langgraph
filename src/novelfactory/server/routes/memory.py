@@ -8,6 +8,7 @@ Migrated from DeerFlow app/gateway/routers/memory.py.
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException
@@ -76,11 +77,12 @@ class FactCreateRequest(BaseModel):
     confidence: float = Field(default=0.5, ge=0, le=1, description="置信度")
 
 
-# ── 内存存储（简化版，可使用 Redis 或文件持久化） ──
+# ── 内存存储（简化版） ──
+# TODO: 当前使用纯内存存储，进程重启后数据丢失。生产环境应迁移至持久化存储
+# （如 PostgreSQL / Redis），可通过 MemoryRepository 封装实现。
 
 _memory_store: dict[str, MemoryResponse] = {}
 _fact_store: list[Fact] = []
-_fact_id_counter: int = 0
 
 
 @router.get("", response_model=MemoryResponse)
@@ -120,11 +122,8 @@ async def list_facts(category: str | None = None):
 @router.post("/facts", response_model=Fact)
 async def create_fact(body: FactCreateRequest):
     """创建新事实。"""
-    global _fact_id_counter
-    _fact_id_counter += 1
-
     fact = Fact(
-        id=f"fact_{_fact_id_counter}",
+        id=f"fact_{uuid.uuid4().hex[:12]}",
         content=body.content,
         category=body.category,
         confidence=body.confidence,

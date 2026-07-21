@@ -21,7 +21,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from langgraph.graph.state import CompiledStateGraph as CompiledGraph
 from langgraph.store.postgres.aio import AsyncPostgresStore
+
+from novelfactory.server.graph_router import GraphRouter
 
 
 async def get_graph() -> Any:
@@ -62,6 +65,23 @@ def get_run_store() -> dict:
     from novelfactory.server.app import _run_store
 
     return _run_store
+
+
+async def get_lead_graph() -> CompiledGraph:
+    """Get the lead agent conversational graph.
+
+    Lazy-imports from server.app at call time.
+    """
+    from novelfactory.server.app import get_lead_graph as _get_lead_graph
+
+    return await _get_lead_graph()
+
+
+async def get_graph_router() -> GraphRouter:
+    """Get the GraphRouter that dispatches between batch and lead graphs."""
+    from novelfactory.server.app import get_router
+
+    return await get_router()
 
 
 # ── 通用依赖注入工厂（参考 DeerFlow deps.py _require 模式） ──────────────

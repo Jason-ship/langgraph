@@ -8,7 +8,7 @@
 
 参数层级（优先级从低到高）：
   Layer 0: 代码硬编码默认值 (LLMParams.__init__)
-  Layer 1: 全局环境变量覆盖 (NOVELEACTORY_LLM_*)
+  Layer 1: 全局环境变量覆盖 (NOVELFACTORY_LLM_*)
   Layer 2: Tier 注册值 (register_tier)
   Layer 3: Agent 注册值 (register_agent)
   Layer 4: 运行时覆盖 (get_params override 参数)
@@ -242,9 +242,9 @@ class LLMParameterCenter:
         return LLMParams(**updates)
 
     def _load_env_overrides(self) -> dict[str, Any]:
-        """从 NOVELEACTORY_LLM_* 环境变量加载覆盖。"""
+        """从 NOVELFACTORY_LLM_* 环境变量加载覆盖。"""
         overrides: dict[str, Any] = {}
-        prefix = "NOVELEACTORY_LLM_"
+        prefix = "NOVELFACTORY_LLM_"
         # 字段名 → 类型映射
         type_map: dict[str, type] = {
             "temperature": float,
@@ -277,7 +277,7 @@ class LLMParameterCenter:
         scope_key = scope.upper().replace(".", "_")
         scope_overrides: dict[str, Any] = {}
         for field_name, value in self._env_overrides.items():
-            env_key = f"NOVELEACTORY_LLM_{scope_key}_{field_name.upper()}"
+            env_key = f"NOVELFACTORY_LLM_{scope_key}_{field_name.upper()}"
             if env_key in os.environ:
                 try:
                     type_map = {

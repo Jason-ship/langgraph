@@ -21,6 +21,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import TYPE_CHECKING
 
 from langchain_core.language_models import BaseChatModel
@@ -39,15 +40,13 @@ from novelfactory.config.constants import (
 )
 from novelfactory.evaluation.debate.engine import InformedDebateEngine
 from novelfactory.evaluation.llm.ai_style_llm import llm_ai_style_analysis
-from novelfactory.evaluation.llm.old_reader_llm import (
-    llm_old_reader_analysis,
-    set_reviewer_llm,
-)
+from novelfactory.evaluation.llm.old_reader_llm import llm_old_reader_analysis
 from novelfactory.evaluation.programmatic.runner import run_programmatic_analysis
 from novelfactory.evaluation.schemas import (
     AttemptInfo,
     CrossChapterSignals,
     DebateReport,
+    EvidenceItem,
     FourDimReviewResult,
     ProgrammaticReport,
     VerdictLevel,
@@ -212,9 +211,6 @@ class VerdictEngine:
             attempt_info.refine_attempts,
             attempt_info.max_refine,
         )
-
-        # 注入 LLM 实例到全局（供 LLM 语义分析模块使用）
-        set_reviewer_llm(reviewer_llm)
 
         # 1. 程序化分析（纯代码，毫秒级 — 快速传感器）
         programmatic, cross_chapter = run_programmatic_analysis(
@@ -503,10 +499,8 @@ class VerdictEngine:
             failed=not parsed,
         )
 
-    def _parse_evidence_chain(self, parsed: dict | None) -> list:
+    def _parse_evidence_chain(self, parsed: dict | None) -> list[EvidenceItem]:
         """从解析后的 JSON 中提取证据链。"""
-        from novelfactory.evaluation.schemas import EvidenceItem
-
         if not parsed:
             return []
         raw_chain = parsed.get("evidence_chain", [])
@@ -570,17 +564,26 @@ class VerdictEngine:
 
         debate_penalty = debate.severity_weight
 
+        # ── 毒点分析状态（一次性计算，供后续多处引用）──
         # v7.8-fix: 毒点检测矛盾时动态调整权重。
         # 当 LLM 语义分析否认程序化毒点时，程序化评分不可靠（关键词误报），
         # 将其权重转移给 LLM 老书虫评分，避免程序化低分拖累总分。
+        llm_severe_toxic = (
+            llm_old_reader is not None
+            and not llm_old_reader.failed
+            and llm_old_reader.has_severe_toxic
+        )
         llm_analysis_healthy = (
             llm_old_reader is not None
             and not llm_old_reader.failed
         )
+        # 程序化毒点被 LLM 语义分析否认时，不触发一票否决。
+        # 都市亲情/悬疑题材中"虐主"元素可能是剧情驱动的合理冲突，
+        # 程序化传感器无法区分"剧情虐"和"恶意虐"。
         prog_toxic_overridden = (
             programmatic.has_severe_toxic
             and llm_analysis_healthy
-            and not (llm_old_reader is not None and llm_old_reader.has_severe_toxic)
+            and not llm_severe_toxic
         )
         w_quality = VERDICT_WEIGHTS["quality"]
         w_prog = VERDICT_WEIGHTS["programmatic"]
@@ -622,28 +625,17 @@ class VerdictEngine:
         # v7.3: 长度归一化 — 消除 Verbosity Bias
         # v7.6-fix: 仅对超过基准长度的文本做归一化，避免短文本(<3000字)被放大。
         # 参考 Lost in Stories (微软, 2026) 的 CED 归一化思路改编。
-        import math as _math
-
         if (
             VERDICT_LENGTH_NORMALIZE
             and chapter_length > VERDICT_NORMALIZE_BASE
         ):
-            length_factor = _math.log2(chapter_length / VERDICT_NORMALIZE_BASE + 1)
+            length_factor = math.log2(chapter_length / VERDICT_NORMALIZE_BASE + 1)
             final_score = final_score / length_factor
         else:
             length_factor = 1.0
 
         # --- 决议 ---
-        # LLM 语义级严重毒点参与决议
-        llm_severe_toxic = (
-            llm_old_reader is not None
-            and not llm_old_reader.failed
-            and llm_old_reader.has_severe_toxic
-        )
-        llm_analysis_healthy = (
-            llm_old_reader is not None
-            and not llm_old_reader.failed
-        )
+        # llm_severe_toxic, llm_analysis_healthy, prog_toxic_overridden 已在顶部一次性计算
 
         # --- 校准 ---
         # v7.7-fix: 传入 LLM 毒点分析结果，使校准模块能区分
@@ -660,20 +652,8 @@ class VerdictEngine:
         )
         final_score = cal_result.score
 
-        # v7.7-fix: 程序化毒点传感器仅做关键词匹配（无上下文理解），
-        # 当 LLM 语义分析完好的情况下明确否认毒点时，程序化毒点不应触发一票否决。
-        # 都市亲情/悬疑题材中"虐主"元素可能是剧情驱动的合理冲突，
-        # 程序化传感器无法区分"剧情虐"和"恶意虐"。
-        llm_analysis_healthy = (
-            llm_old_reader is not None
-            and not llm_old_reader.failed
-        )
-        # 仅当 LLM 分析可用且否认毒点时，抑制程序化毒点一票否决
-        prog_toxic_overridden = (
-            programmatic.has_severe_toxic
-            and llm_analysis_healthy
-            and not llm_severe_toxic
-        )
+        # --- 校准后级别决策 ---
+        # v7.7-fix: 程序化毒点被 LLM 语义分析否认时已在顶部计算 prog_toxic_overridden
         level = self._decide_level(
             final_score,
             programmatic,
@@ -710,13 +690,7 @@ class VerdictEngine:
                 f"{cal_reason}; " if cal_reason else "评分校准: "
             ) + f"双向次数用尽强制通过(final={final_score:.0f}分)"
 
-        # 融合 LLM 严重毒点标记
-        # v7.7-fix: 当 LLM 分析可用且否认毒点时，不在报告中标记严重毒点
-        prog_toxic_overridden = (
-            programmatic.has_severe_toxic
-            and llm_analysis_healthy
-            and not llm_severe_toxic
-        )
+        # 融合 LLM 严重毒点标记（prog_toxic_overridden 已在顶部计算）
         combined_severe_toxic = (
             llm_severe_toxic
             or (programmatic.has_severe_toxic and not prog_toxic_overridden)

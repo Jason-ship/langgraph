@@ -1223,10 +1223,16 @@ def create_chapter_refiner_agent(llm: BaseChatModel) -> Runnable:
             )
             if parsed and isinstance(parsed.get("fixes"), dict):
                 fixes_raw = parsed["fixes"]
-                # Validate and convert keys to int
+                # Validate and convert keys to int (skip invalid keys)
                 fixes: dict[int, str] = {}
                 for k, v in fixes_raw.items():
-                    idx = int(k)
+                    try:
+                        idx = int(k)
+                    except (ValueError, TypeError):
+                        _logger.debug(
+                            "Skipping invalid fix key: %r", k,
+                        )
+                        continue
                     if isinstance(v, str) and v.strip():
                         fixes[idx] = v.strip()
 
