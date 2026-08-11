@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import logging
 import secrets
-from typing import Any
 
 from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -19,9 +18,13 @@ logger = logging.getLogger(__name__)
 CSRF_COOKIE_NAME = "csrf_token"
 CSRF_HEADER_NAME = "X-CSRF-Token"
 
-# 免检路径 — 仅豁免只读公开端点和使用自有签名验证的 Webhook。
-# SDK 端点（/threads、/runs 等）不豁免，需携带 CSRF Token。
+# 免检路径 — 豁免只读公开端点、使用自有签名验证的 Webhook，
+# 以及 LangGraph SDK 程序化端点。
+# SDK（/threads、/runs、/assistants 等）由前端 Agent 以 API 方式调用，
+# 不依赖浏览器 Cookie 会话，CSRF（Double Submit Cookie）对其不适用，
+# 强制校验会导致前端 SDK 创建/搜索会话被 403 误拦。
 _EXEMPT_PATHS = frozenset({
+    # 只读/公开端点
     "/health",
     "/ready",
     "/docs",
@@ -30,6 +33,18 @@ _EXEMPT_PATHS = frozenset({
     "/metrics",
     "/favicon.ico",
     "/api/webhooks/",
+    # LangGraph SDK 端点（前缀匹配子路径）
+    "/threads",
+    "/runs",
+    "/assistants",
+    "/messages",
+    "/checkpoints",
+    "/commands",
+    "/graphs",
+    "/named_graphs",
+    "/interrupts",
+    "/files",
+    "/scheduled-tasks",
 })
 
 
@@ -45,6 +60,7 @@ class CSRFMiddleware:
     - GET/HEAD/OPTIONS 请求
     - /health, /ready, /docs 等公开路径
     - /api/webhooks/ 开头的 Webhook 路径（使用自有签名验证）
+    - LangGraph SDK 端点（/threads、/runs、/assistants 等，程序化调用不适用 CSRF）
     """
 
     def __init__(self, app: ASGIApp, *, enabled: bool = True):
