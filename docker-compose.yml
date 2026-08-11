@@ -256,6 +256,8 @@ services:
     volumes:
       - ./deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./deploy/nginx/conf.d:/etc/nginx/conf.d:ro
+      # 持久化 nginx 访问/错误日志（access.log + proxy_detail stdout 双通道）
+      - nginx_logs:/var/log/nginx
     ports:
       - "${NGINX_PORT:-8081}:80"
       - "${NGINX_SSL_PORT:-8443}:443"
@@ -342,4 +344,6 @@ volumes:
   neo4j_logs:
     driver: local
   lark_cli_config:
+    driver: local
+  nginx_logs:
     driver: local
