@@ -1,5 +1,5 @@
 # ──────────────────────────────────────────────────────────────────────────────
-# NovelFactory LangGraph v7.8 - Docker Desktop docker-compose
+# NovelFactory LangGraph v8.0 - Docker Desktop docker-compose
 #
 # Usage:
 #   Deploy all:    docker compose -p langgraph up -d

@@ -22,7 +22,7 @@ Usage:
 from __future__ import annotations
 
 import logging
-from concurrent.futures import TimeoutError as FuturesTimeoutError, ThreadPoolExecutor
+from concurrent.futures import ALL_COMPLETED, ThreadPoolExecutor, wait
 from typing import Any
 
 from langchain_core.messages import AIMessage
@@ -94,7 +94,7 @@ def _parallel_media_node(state: MediaCrewLocalState) -> dict[str, Any]:
     # Use ThreadPoolExecutor for true concurrent execution (no event loop
     # creation, no RuntimeError handling, no loop leak on Windows).
     sw.write("[media] 生成插图中...\n")
-    _MEDIA_TIMEOUT_SECONDS = 300
+    media_timeout_seconds = 300
     illustration_url = ""
     illustration_prompt = ""
     audio_url = ""
@@ -102,26 +102,39 @@ def _parallel_media_node(state: MediaCrewLocalState) -> dict[str, Any]:
         with ThreadPoolExecutor(max_workers=2, thread_name_prefix="media_crew") as pool:
             future_ill = pool.submit(illustrator_agent, illustrator_input)
             future_tts = pool.submit(tts_agent, tts_input)
-            try:
-                illustrator_result = future_ill.result(timeout=_MEDIA_TIMEOUT_SECONDS)
-                illustration_url = illustrator_result.get("illustration_url", "")
-                illustration_prompt = illustrator_result.get("illustration_prompt", "")
-            except FuturesTimeoutError:
-                logger.warning("[media_crew] 插图生成超时(%ds)", _MEDIA_TIMEOUT_SECONDS)
-                sw.write("[media] ✗ 插图生成超时\n")
-            except Exception as exc:
-                logger.warning("[media_crew] 插图生成异常: %s", exc)
-                sw.write(f"[media] ✗ 插图生成异常: {exc}\n")
 
-            try:
-                tts_result = future_tts.result(timeout=_MEDIA_TIMEOUT_SECONDS)
-                audio_url = tts_result.get("audio_url", "")
-            except FuturesTimeoutError:
-                logger.warning("[media_crew] 配音生成超时(%ds)", _MEDIA_TIMEOUT_SECONDS)
-                sw.write("[media] ✗ 配音生成超时\n")
-            except Exception as exc:
-                logger.warning("[media_crew] 配音生成异常: %s", exc)
-                sw.write(f"[media] ✗ 配音生成异常: {exc}\n")
+            # 统一超时等待两个 future 同时完成（总耗时 ≤ media_timeout_seconds）
+            # v7.10-fix: FIRST_COMPLETED 只等第一个完成即返回，导致另一个 future
+            # 被误判为超时并 cancel（插图/配音结果必然丢失其一）。改为 ALL_COMPLETED
+            # 等待两者均完成，超时兜底仍由 wait 的 timeout 保证。
+            # 超时语义权衡：与原实现（每个 future 独立 300s，从各自 result() 起算）
+            # 不同，此处为共享 300s 预算（从 wait 起算）。若插图耗 290s，配音
+            # 仅剩 10s 预算——这是有意的总耗时上限优化，换取更可预期的端到端时延。
+            done, pending = wait(
+                {future_ill, future_tts},
+                timeout=media_timeout_seconds,
+                return_when=ALL_COMPLETED,
+            )
+
+            # 分别收集每个 future 的结果（已完成 → result()，未完成 → 超时）
+            for future, label in ((future_ill, "插图"), (future_tts, "配音")):
+                if future in done:
+                    try:
+                        result = future.result()  # 已完成，无需 timeout
+                        if label == "插图":
+                            illustration_url = result.get("illustration_url", "")
+                            illustration_prompt = result.get("illustration_prompt", "")
+                        else:
+                            audio_url = result.get("audio_url", "")
+                    except Exception as exc:
+                        logger.warning("[media_crew] %s生成异常: %s", label, exc)
+                        sw.write(f"[media] ✗ {label}生成异常: {exc}\n")
+                else:
+                    logger.warning(
+                        "[media_crew] %s生成超时(%ds)", label, media_timeout_seconds
+                    )
+                    sw.write(f"[media] ✗ {label}生成超时\n")
+                    future.cancel()  # 尝试取消仍在运行的 future
     except Exception as exc:
         logger.error("[media_crew] ThreadPoolExecutor 异常: %s", exc)
 

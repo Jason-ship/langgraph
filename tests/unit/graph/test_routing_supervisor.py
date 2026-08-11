@@ -112,10 +112,10 @@ class TestResolveTargetChapters:
     """Test the chapter resolution utility."""
 
     def test_empty_target(self):
-        """No target specified → returns FALLBACK_TARGET_CHAPTERS=600 (v5.5)."""
+        """No target specified → returns FALLBACK_TARGET_CHAPTERS=1000 (v8.0)."""
         state = {}
         result = _resolve_target_chapters(state)
-        assert result == 600
+        assert result == 1000
 
     def test_single_chapter(self):
         """target_chapters=N → returns N."""

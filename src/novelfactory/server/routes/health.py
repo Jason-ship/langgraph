@@ -82,12 +82,23 @@ async def ready() -> dict:
     except (ValueError, OSError) as e:
         logger.exception("Readiness check failed")
         raise HTTPException(status_code=503, detail=f"Not ready: {e}") from e
-    else:
-        return {
-            "status": "ready",
-            "version": settings.APP_VERSION,
-            "graph_compiled": graph is not None,
-        }
+
+    # v8.0: 连接池健康检查 + 自动恢复 — PostgreSQL 重启/连接失效时自动重建共享池
+    pool_healthy = True
+    try:
+        from novelfactory.graph.checkpointer import ensure_pool_healthy
+
+        await ensure_pool_healthy()
+    except Exception as exc:
+        logger.warning("[ready] 连接池健康检查失败: %s", exc)
+        pool_healthy = False
+
+    return {
+        "status": "ready" if pool_healthy else "degraded",
+        "version": settings.APP_VERSION,
+        "graph_compiled": graph is not None,
+        "db_pool_healthy": pool_healthy,
+    }
 
 
 @router.get("/info", tags=["health"])

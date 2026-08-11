@@ -144,34 +144,47 @@ def _save_to_pg_node(state: DatabaseWriterState) -> dict:
             conn.autocommit = True
             cur = conn.cursor()
 
-            # 角色状态
+            # 角色状态（批量 executemany + ON CONFLICT upsert）
             chars = extracted.get("characters", [])
-            for c in chars:
+            if chars:
+                char_params = [
+                    (
+                        project,
+                        ch,
+                        c.get("name", "?"),
+                        c.get("location", ""),
+                        c.get("mood", ""),
+                        c.get("power_level", ""),
+                        c.get("status", "健在"),
+                        json.dumps(c.get("relationships", {}), ensure_ascii=False),
+                        json.dumps(c.get("knowledge", []), ensure_ascii=False),
+                        json.dumps(c.get("items", []), ensure_ascii=False),
+                        json.dumps(c, ensure_ascii=False),
+                    )
+                    for c in chars
+                ]
                 try:
-                    cur.execute(
+                    cur.executemany(
                         """
                         INSERT INTO novel_character_states
                             (project_name, chapter_number, character_name, location, mood,
                              power_level, status, relationships, knowledge, items, raw_state)
                         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (project_name, chapter_number, character_name) DO UPDATE SET
+                            location = EXCLUDED.location,
+                            mood = EXCLUDED.mood,
+                            power_level = EXCLUDED.power_level,
+                            status = EXCLUDED.status,
+                            relationships = EXCLUDED.relationships,
+                            knowledge = EXCLUDED.knowledge,
+                            items = EXCLUDED.items,
+                            raw_state = EXCLUDED.raw_state
                     """,
-                        (
-                            project,
-                            ch,
-                            c.get("name", "?"),
-                            c.get("location", ""),
-                            c.get("mood", ""),
-                            c.get("power_level", ""),
-                            c.get("status", "健在"),
-                            json.dumps(c.get("relationships", {}), ensure_ascii=False),
-                            json.dumps(c.get("knowledge", []), ensure_ascii=False),
-                            json.dumps(c.get("items", []), ensure_ascii=False),
-                            json.dumps(c, ensure_ascii=False),
-                        ),
+                        char_params,
                     )
-                    result["characters_saved"] += 1
+                    result["characters_saved"] = len(char_params)
                 except Exception as e:
-                    logger.warning("save character %s failed: %s", c.get("name"), e)
+                    logger.warning("batch save characters failed: %s", e)
 
             # 章节记录
             try:
@@ -200,11 +213,22 @@ def _save_to_pg_node(state: DatabaseWriterState) -> dict:
             except Exception as e:
                 logger.warning("save chapter failed: %s", e)
 
-            # 剧情线索
+            # 剧情线索（批量 executemany + ON CONFLICT upsert）
             events = extracted.get("events", [])
-            for ev in events:
+            if events:
+                thread_params = [
+                    (
+                        project,
+                        ev.get("event", "")[:100],
+                        "open",
+                        ch,
+                        ev.get("event", ""),
+                        json.dumps(ev.get("characters", []), ensure_ascii=False),
+                    )
+                    for ev in events
+                ]
                 try:
-                    cur.execute(
+                    cur.executemany(
                         """
                         INSERT INTO novel_plot_threads
                             (project_name, thread_name, status, created_chapter, description, related_characters)
@@ -214,18 +238,11 @@ def _save_to_pg_node(state: DatabaseWriterState) -> dict:
                             description = EXCLUDED.description,
                             related_characters = EXCLUDED.related_characters
                     """,
-                        (
-                            project,
-                            ev.get("event", "")[:100],
-                            "open",
-                            ch,
-                            ev.get("event", ""),
-                            json.dumps(ev.get("characters", []), ensure_ascii=False),
-                        ),
+                        thread_params,
                     )
-                    result["threads_saved"] += 1
+                    result["threads_saved"] = len(thread_params)
                 except Exception as e:
-                    logger.warning("save thread failed: %s", e)
+                    logger.warning("batch save threads failed: %s", e)
 
             cur.close()
     except Exception as e:

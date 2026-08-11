@@ -70,6 +70,28 @@ class Neo4jStore:
                 props=properties,
             )
 
+    def upsert_characters_batch(self, characters: list[dict]) -> None:
+        """Batch upsert character nodes using UNWIND.
+
+        Args:
+            characters: List of {"name": str, "properties": dict}.
+        """
+        if not self._driver or not characters:
+            return
+        logger.debug("[Neo4j] upsert_characters_batch count=%d", len(characters))
+        with self._driver.session() as session:
+            session.run(
+                """
+                UNWIND $chars AS char
+                MERGE (c:Character {name: char.name})
+                SET c += char.props
+            """,
+                chars=[
+                    {"name": c["name"], "props": c.get("properties", {})}
+                    for c in characters
+                ],
+            )
+
     def upsert_place(self, name: str, properties: dict = None) -> None:
         """Create or update a place node.
 
@@ -190,6 +212,50 @@ class Neo4jStore:
                 props=properties or {},
             )
 
+    def create_relationships_hetero_batch(
+        self, relationships: list[dict]
+    ) -> None:
+        """Batch create relationships with potentially different types.
+
+        Groups by sanitized relationship type and uses UNWIND per group,
+        reducing the number of session round-trips.
+
+        Args:
+            relationships: List of {"source": str, "target": str,
+                                     "rel_type": str, "properties": dict}.
+        """
+        if not self._driver or not relationships:
+            return
+        logger.debug(
+            "[Neo4j] create_relationships_hetero_batch count=%d",
+            len(relationships),
+        )
+        groups: dict[str, list[dict]] = {}
+        for rel in relationships:
+            safe_type = self._sanitize_rel_type(rel["rel_type"])
+            if safe_type is None:
+                continue
+            groups.setdefault(safe_type, []).append(rel)
+        with self._driver.session() as session:
+            for safe_type, rels in groups.items():
+                session.run(
+                    f"""
+                    UNWIND $pairs AS pair
+                    MATCH (a:Character {{name: pair.c1}})
+                    MATCH (b:Character {{name: pair.c2}})
+                    MERGE (a)-[r:{safe_type}]->(b)
+                    SET r += COALESCE(pair.props, {{}})
+                """,
+                    pairs=[
+                        {
+                            "c1": r["source"],
+                            "c2": r["target"],
+                            "props": r.get("properties", {}),
+                        }
+                        for r in rels
+                    ],
+                )
+
     def create_location_relationship(self, char_name: str, location: str) -> None:
         """Create a relationship between a character and a location.
 
@@ -212,6 +278,29 @@ class Neo4jStore:
             """,
                 char=char_name,
                 loc=location,
+            )
+
+    def create_location_relationships_batch(self, pairs: list[dict]) -> None:
+        """Batch create character-location relationships using UNWIND.
+
+        Args:
+            pairs: List of {"char": str, "location": str}.
+        """
+        if not self._driver or not pairs:
+            return
+        logger.debug(
+            "[Neo4j] create_location_relationships_batch count=%d", len(pairs)
+        )
+        with self._driver.session() as session:
+            session.run(
+                """
+                UNWIND $pairs AS pair
+                MERGE (p:Place {name: pair.loc})
+                WITH p, pair
+                MATCH (c:Character {name: pair.char})
+                MERGE (c)-[:IS_AT]->(p)
+            """,
+                pairs=pairs,
             )
 
     def upsert_plot_thread(
@@ -239,6 +328,28 @@ class Neo4jStore:
                 desc=description,
                 ch=chapter,
                 status=status,
+            )
+
+    def upsert_plot_threads_batch(self, threads: list[dict]) -> None:
+        """Batch upsert plot thread nodes using UNWIND.
+
+        Args:
+            threads: List of {"name": str, "description": str,
+                              "chapter": int, "status": str}.
+        """
+        if not self._driver or not threads:
+            return
+        logger.debug("[Neo4j] upsert_plot_threads_batch count=%d", len(threads))
+        with self._driver.session() as session:
+            session.run(
+                """
+                UNWIND $threads AS t
+                MERGE (pt:PlotThread {name: t.name})
+                SET pt.description = t.description,
+                    pt.chapter = t.chapter,
+                    pt.status = t.status
+            """,
+                threads=threads,
             )
 
     def link_character_to_thread(self, char_name: str, thread_name: str) -> None:

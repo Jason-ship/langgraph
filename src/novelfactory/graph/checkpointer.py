@@ -37,10 +37,9 @@ logger = logging.getLogger(__name__)
 # ── Default configuration constants ────────────────────────────────────────────
 _RETRY_ATTEMPTS = 3
 _RETRY_SLEEP_SECONDS = 1
-_DB_MIN_SIZE = 2
-_DB_MAX_SIZE = 10
-_DB_STORE_MIN_SIZE = 1
-_DB_STORE_MAX_SIZE = 5
+# 共享连接池尺寸（checkpointer + store 共用，见 _get_shared_pool）
+_SHARED_POOL_MIN_SIZE = 3
+_SHARED_POOL_MAX_SIZE = 15
 _AGC_RETAIN_LAST = 10
 _GC_MAX_AGE_DAYS = 30
 _AGC_LIST_LIMIT = 1000
@@ -104,6 +103,10 @@ _store_singleton: Any = None
 _checkpointer_lock: asyncio.Lock = asyncio.Lock()
 _store_lock: asyncio.Lock = asyncio.Lock()
 
+# ── Shared connection pool (v8.x: checkpointer + store 共用同一池) ──
+_shared_pool: Any = None
+_shared_pool_lock: asyncio.Lock = asyncio.Lock()
+
 
 async def create_checkpointer(db_url: str | None = None) -> AsyncPostgresSaver | Any:
     """Create or reuse the production checkpointer (singleton with cache).
@@ -133,22 +136,10 @@ async def create_checkpointer(db_url: str | None = None) -> AsyncPostgresSaver |
             if db_url:
                 for attempt in range(_RETRY_ATTEMPTS):
                     try:
-                        pool = AsyncConnectionPool(
-                            conninfo=db_url,
-                            max_size=_DB_MAX_SIZE,
-                            min_size=_DB_MIN_SIZE,
-                            name="checkpointer",
-                            kwargs={"autocommit": True},
-                            open=False,
-                        )
-                        await pool.open()
+                        pool = await _get_shared_pool(db_url)
                         saver = AsyncPostgresSaver(conn=pool, serde=_create_serde())
                         await saver.setup()
-                        logger.info(
-                            "[checkpointer] AsyncPostgresSaver ready (pool size=%d..%d)",
-                            _DB_MIN_SIZE,
-                            _DB_MAX_SIZE,
-                        )
+                        logger.info("[checkpointer] AsyncPostgresSaver ready (shared pool)")
                         _checkpointer_singleton = saver
                         return saver
                     except Exception as exc:
@@ -242,6 +233,88 @@ def reset_store_singleton() -> None:
     _store_singleton = None
 
 
+# ── Shared connection pool management (v8.x) ───────────────────────────────────
+
+
+async def _get_shared_pool(
+    db_url: str | None = None,
+    *,
+    min_size: int = _SHARED_POOL_MIN_SIZE,
+    max_size: int = _SHARED_POOL_MAX_SIZE,
+) -> AsyncConnectionPool:
+    """获取或创建共享 AsyncConnectionPool（checkpointer + store 共用）。
+
+    统一生命周期管理：两个组件共享同一连接池，避免重复创建。
+    """
+    global _shared_pool
+    if _shared_pool is not None:
+        return _shared_pool
+    async with _shared_pool_lock:
+        if _shared_pool is not None:
+            return _shared_pool
+        url = db_url or _db_url_from_env()
+        pool = AsyncConnectionPool(
+            conninfo=url,
+            max_size=max_size,
+            min_size=min_size,
+            name="langgraph_shared",
+            kwargs={"autocommit": True},
+            open=False,
+        )
+        await pool.open()
+        _shared_pool = pool
+        logger.info(
+            "[checkpointer] Shared AsyncConnectionPool ready (pool size=%d..%d)",
+            min_size,
+            max_size,
+        )
+        return pool
+
+
+async def check_pool_health(pool: Any) -> bool:
+    """检查连接池健康状态（执行 SELECT 1 探测）。"""
+    try:
+        async with pool.connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute("SELECT 1")
+                await cur.fetchone()
+        return True
+    except Exception as exc:
+        logger.warning("[checkpointer] 连接池健康检查失败: %s", exc)
+        return False
+
+
+async def ensure_pool_healthy(db_url: str | None = None) -> Any:
+    """确保共享池健康，连接失效时自动重建（reset 所有 singleton）。
+
+    非 postgres checkpoint 类型（memory/sqlite/redis）不创建共享池，
+    直接返回 None，避免在开发/测试模式下 /ready 误建不必要的
+    PostgreSQL 连接池或误报 degraded。
+    """
+    global _shared_pool
+    if _checkpoint_type() != "postgres":
+        return None
+    if _shared_pool is None:
+        return await _get_shared_pool(db_url)
+    if not await check_pool_health(_shared_pool):
+        logger.warning("[checkpointer] 连接池失效，自动重建连接池与组件")
+        try:
+            await _shared_pool.close()
+        except Exception:
+            pass
+        _shared_pool = None
+        reset_checkpointer_singleton()
+        reset_store_singleton()
+        return await _get_shared_pool(db_url)
+    return _shared_pool
+
+
+def reset_shared_pool() -> None:
+    """Reset the shared pool singleton (for tests / forced recreation)."""
+    global _shared_pool
+    _shared_pool = None
+
+
 # ── Store embedding helper ─────────────────────────────────────────────────────
 
 
@@ -327,15 +400,7 @@ async def create_store(db_url: str | None = None) -> AsyncPostgresStore | Any:
             db_url = db_url or _db_url_from_env()
             if db_url:
                 try:
-                    pool = AsyncConnectionPool(
-                        conninfo=db_url,
-                        max_size=_DB_STORE_MAX_SIZE,
-                        min_size=_DB_STORE_MIN_SIZE,
-                        name="store",
-                        kwargs={"autocommit": True},
-                        open=False,
-                    )
-                    await pool.open()
+                    pool = await _get_shared_pool(db_url)
                     embed_fn = _create_embed_function()
                     if embed_fn:
                         dims = int(

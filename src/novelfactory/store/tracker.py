@@ -66,7 +66,16 @@ class NovelStateTracker:
         self.config = config or DBConfig()
 
         if _pg_store is None:
-            _pg_store = PGStore(self.config)
+            try:
+                # 复用共享 DatabaseManager 连接池，避免第 4 个独立连接池
+                from novelfactory.config.database import DatabaseManager
+
+                _pg_store = PGStore(self.config, db_manager=DatabaseManager.get_instance())
+            except Exception as exc:
+                logger.warning(
+                    "DatabaseManager init failed (%s), using standalone PGStore", exc
+                )
+                _pg_store = PGStore(self.config)
         self.pg = _pg_store
 
         if _milvus_store is None:
@@ -119,10 +128,9 @@ class NovelStateTracker:
         threads = state_data.get("unresolved_threads", [])
 
         try:
-            for char_name, char_state in characters.items():
-                self.pg.save_character_state(
-                    self.project, chapter_number, char_name, char_state
-                )
+            self.pg.save_character_states_batch(
+                self.project, chapter_number, characters
+            )
             result["characters"] = len(characters)
             result["pg"] = True
         except Exception as e:
@@ -141,22 +149,42 @@ class NovelStateTracker:
         except Exception as e:
             logger.warning("PG chapter save error: %s", e)
 
-        for thread in threads[:MAX_THREADS_SAVE]:
-            try:
+        threads_to_save = threads[:MAX_THREADS_SAVE]
+        if threads_to_save:
+            pg_threads: list[dict] = []
+            neo4j_threads: list[dict] = []
+            for thread in threads_to_save:
                 desc = (
                     thread[:THREAD_DESC_LEN] if isinstance(thread, str) else str(thread)
                 )
-                self.pg.save_plot_thread(
-                    self.project,
-                    desc[:THREAD_NAME_LEN],
-                    desc[:THREAD_DESC_LEN],
-                    chapter_number,
+                thread_name = desc[:THREAD_NAME_LEN]
+                thread_desc = desc[:THREAD_DESC_LEN]
+                pg_threads.append(
+                    {
+                        "thread_name": thread_name,
+                        "description": thread_desc,
+                        "chapter": chapter_number,
+                        "status": "open",
+                        "related_chars": [],
+                    }
                 )
-                self.neo4j.upsert_plot_thread(
-                    desc[:THREAD_NAME_LEN], desc[:THREAD_DESC_LEN], chapter_number
+                neo4j_threads.append(
+                    {
+                        "name": thread_name,
+                        "description": thread_desc,
+                        "chapter": chapter_number,
+                        "status": "open",
+                    }
                 )
-            except Exception:
-                pass
+            try:
+                self.pg.save_plot_threads_batch(self.project, pg_threads)
+            except Exception as e:
+                logger.warning("PG plot threads batch save error: %s", e)
+            try:
+                if self.neo4j.is_connected():
+                    self.neo4j.upsert_plot_threads_batch(neo4j_threads)
+            except Exception as e:
+                logger.warning("Neo4j plot threads batch error: %s", e)
 
         try:
             summary = chapter_text[:EMBED_SUMMARY_LEN].replace("\n", " ")
@@ -169,33 +197,51 @@ class NovelStateTracker:
 
         try:
             if self.neo4j.is_connected():
+                # ── Batch upsert characters ──
+                char_props_list: list[dict] = []
+                location_pairs: list[dict] = []
                 for char_name, char_state in characters.items():
-                    self.neo4j.upsert_character(
-                        char_name,
+                    char_props_list.append(
                         {
-                            "location": char_state.get("location", ""),
-                            "mood": char_state.get("mood", ""),
-                            "power": char_state.get("power_level", ""),
-                            "status": char_state.get("status", "健在"),
-                            "last_chapter": chapter_number,
-                        },
+                            "name": char_name,
+                            "properties": {
+                                "location": char_state.get("location", ""),
+                                "mood": char_state.get("mood", ""),
+                                "power": char_state.get("power_level", ""),
+                                "status": char_state.get("status", "健在"),
+                                "last_chapter": chapter_number,
+                            },
+                        }
                     )
                     if char_state.get("location"):
-                        self.neo4j.create_location_relationship(
-                            char_name, char_state["location"]
+                        location_pairs.append(
+                            {"char": char_name, "location": char_state["location"]}
                         )
 
+                if char_props_list:
+                    self.neo4j.upsert_characters_batch(char_props_list)
+
+                # ── Batch create location relationships ──
+                if location_pairs:
+                    self.neo4j.create_location_relationships_batch(location_pairs)
+
+                # ── Batch create character relationships (heterogeneous types) ──
+                rel_list: list[dict] = []
                 for name, char_state in characters.items():
                     relationships = char_state.get("relationships", {})
                     for target, rel_type in relationships.items():
-                        self.neo4j.create_relationship(
-                            name, rel_type, target, {"chapter": chapter_number}
+                        rel_list.append(
+                            {
+                                "source": name,
+                                "target": target,
+                                "rel_type": rel_type,
+                                "properties": {"chapter": chapter_number},
+                            }
                         )
-                    if char_state.get("location"):
-                        self.neo4j.create_location_relationship(
-                            name, char_state["location"]
-                        )
+                if rel_list:
+                    self.neo4j.create_relationships_hetero_batch(rel_list)
 
+                # ── KNOWS relationships (existing homogeneous batch) ──
                 char_names = list(characters.keys())
                 if len(char_names) > 1:
                     pairs = [

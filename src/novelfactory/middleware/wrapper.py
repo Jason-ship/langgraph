@@ -24,16 +24,16 @@ def with_middleware(
 ) -> Callable[..., dict[str, Any]]:
     """将中间件链包装到 LangGraph 节点函数上。
 
-    对于 compiled subgraph（CompiledStateGraph），直接返回原对象，
-    LangGraph 内部通过 invoke 调用子图，包装器会破坏调用契约。
+    对于 compiled subgraph（CompiledStateGraph），包装为 async wrapper
+    使中间件 before/after 钩子对子图入口/出口生效（v8.0+ 修复绕过问题）。
     对于普通节点函数，包装 before/after 钩子。
     异步函数（async def）自动使用异步包装器。
 
-    LangGraph 节点函数的签名为 (state, config, **kwargs) → dict。
+    LangGraph 节点函数的签名为 (state, config, **kwargs) -> dict。
     """
-    # CompiledStateGraph 不能被直接调用，LangGraph 内部使用 invoke
+    # CompiledStateGraph 包装为 async wrapper，使中间件钩子对子图生效
     if isinstance(node_fn, CompiledStateGraph):
-        return node_fn
+        return _make_subgraph_wrapper(node_fn, chain)
 
     if inspect.iscoroutinefunction(node_fn):
         return _make_async_wrapper(node_fn, chain)
@@ -99,3 +99,37 @@ def _make_async_wrapper(
         return result
 
     return async_wrapped
+
+
+def _make_subgraph_wrapper(
+    compiled: CompiledStateGraph,
+    chain: MiddlewareChain,
+) -> Callable[..., dict[str, Any]]:
+    """Create an async middleware wrapper for a compiled subgraph.
+
+    包装 CompiledStateGraph 使中间件 before_node/after_node 钩子
+    在子图入口/出口生效。子图通过 ainvoke 异步调用，保持原有行为不变。
+    """
+
+    async def async_subgraph_wrapper(
+        state: dict, config: Optional[RunnableConfig] = None, **kwargs  # noqa: UP045 - intentional, LangGraph type checker requires Optional
+    ) -> dict[str, Any]:
+        if config is None:
+            config = {}
+
+        # Before hooks (sync)
+        pre_updates = chain.execute_before(state, config)
+        if pre_updates:
+            state = {**state, **pre_updates}
+
+        # Execute subgraph (async)
+        result = await compiled.ainvoke(state, config=config, **kwargs)
+
+        # After hooks (sync)
+        post_updates = chain.execute_after(state, result, config)
+        if post_updates:
+            result = {**result, **post_updates}
+
+        return result
+
+    return async_subgraph_wrapper

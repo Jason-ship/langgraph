@@ -18,8 +18,8 @@ logger = logging.getLogger(__name__)
 # ── Node: context_builder ────────────────────────────────────────────────────────
 
 
-def context_builder_node_fn(state: BaseCrewState) -> dict:
-    """Build writing context via ContextBuilder subgraph — as LangGraph node."""
+async def context_builder_node_fn(state: BaseCrewState) -> dict:
+    """Build writing context via ContextBuilder subgraph - as LangGraph node."""
     cr = state.get("crew_result", {})
     # v7.3-fix: 优先 crew_result，兜底顶层 state（确保项目名一致性）
     project_name = cr.get("project_name") or state.get("project_name", "") or ""
@@ -28,7 +28,7 @@ def context_builder_node_fn(state: BaseCrewState) -> dict:
     try:
         from novelfactory.graph.subgraphs.context_builder import build_context_builder
 
-        ctx = build_context_builder().invoke(
+        ctx = await build_context_builder().ainvoke(
             {
                 "project_name": project_name,
                 "chapter_number": current_ch,
@@ -43,8 +43,8 @@ def context_builder_node_fn(state: BaseCrewState) -> dict:
 # ── Node: state_extractor ────────────────────────────────────────────────────────
 
 
-def state_extractor_node_fn(state: BaseCrewState) -> dict:
-    """Extract state after chapter completion — as LangGraph node."""
+async def state_extractor_node_fn(state: BaseCrewState) -> dict:
+    """Extract state after chapter completion - as LangGraph node."""
     from novelfactory.config.constants import MIN_CHAPTER_TEXT_LENGTH
 
     cr = state.get("crew_result", {})
@@ -59,7 +59,7 @@ def state_extractor_node_fn(state: BaseCrewState) -> dict:
             )
 
             extractor = build_state_extractor()
-            result = extractor.invoke(
+            result = await extractor.ainvoke(
                 {
                     "project_name": project_name,
                     "chapter_number": current_ch,
@@ -77,7 +77,7 @@ def state_extractor_node_fn(state: BaseCrewState) -> dict:
 # ── Node: database_writer ────────────────────────────────────────────────────────
 
 
-def database_writer_node_fn(state: BaseCrewState) -> dict:
+async def database_writer_node_fn(state: BaseCrewState) -> dict:
     """Write chapter data to databases — as LangGraph node."""
     from novelfactory.config.constants import (
         EXCELLENT_THRESHOLD as _EXCELLENT_THRESHOLD,
@@ -122,7 +122,7 @@ def database_writer_node_fn(state: BaseCrewState) -> dict:
             )
 
             writer = build_database_writer()
-            writer.invoke(
+            await writer.ainvoke(
                 {
                     "project_name": project_name,
                     "chapter_number": current_ch,

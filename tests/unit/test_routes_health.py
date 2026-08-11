@@ -82,6 +82,10 @@ class TestReadyEndpoint:
             "novelfactory.server.app.get_app",
             new_callable=AsyncMock,
             return_value=_fake_graph,
+        ), patch(
+            # v8.0: /ready 接入连接池健康检查 — mock 避免测试环境连真实 PG
+            "novelfactory.graph.checkpointer.ensure_pool_healthy",
+            new_callable=AsyncMock,
         ):
             from fastapi.testclient import TestClient
             c = TestClient(app)

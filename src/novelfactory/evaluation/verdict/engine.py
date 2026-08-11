@@ -21,6 +21,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -55,7 +56,10 @@ from novelfactory.evaluation.schemas import (
     VerdictResult,
 )
 from novelfactory.evaluation.utils import index_chapter_text, normalize_paragraph_refs
-from novelfactory.evaluation.verdict.calibration import CalibrationModule, CalibrationResult
+from novelfactory.evaluation.verdict.calibration import (
+    CalibrationModule,
+    CalibrationResult,
+)
 from novelfactory.evaluation.verdict.feedback import FeedbackBuilder
 from novelfactory.schemas.review_schemas import FourDimScores
 
@@ -237,45 +241,49 @@ class VerdictEngine:
             prev_chapters_summary=prev_summary,
         )
 
-        # 2. LLM 语义分析（并行轨道 — LLM 老书虫 + LLM AI味）
-        # v7.2: 多模型分层支持 — 不同 LLM 执行不同维度的分析
-        # 参考 Fiction_Eval 实证：Claude 擅长宏观, DeepSeek 擅长中观, GPT-4o 擅长微观
-        # v7.8: async — await 所有 LLM 调用
-        llm_or = await llm_old_reader_analysis(
-            chapter_text=chapter_text,
-            genre=genre,
-            prev_summary=prev_summary,
-            llm=reviewer_llm,
-        )
-        llm_ais = await llm_ai_style_analysis(
-            chapter_text=chapter_text,
-            genre=genre,
-            programmatic_metrics=programmatic.ai_style_metrics.to_brief_string(),
-            llm=reviewer_llm,
-        )
-
-        # v7.2: 质量衰减检测（Fiction_Eval"高开低走"模式）
+        # v7.2: 质量衰减检测（同步，Fiction_Eval"高开低走"模式）
         decay_penalty = _detect_quality_decay(chapter_text)
 
-        # 3. 知情辩论（LLM，注入程序化结果 + LLM语义分析）
-        debate = await self._run_debate(
-            chapter_text,
-            genre,
-            genre_scoring_guide,
-            prev_summary,
-            programmatic,
-            cross_chapter,
-            debate_llm,
-        )
-
-        # 4. 四维 LLM 评分（只调一次！）
-        four_dim = await self._run_four_dim_review(
-            chapter_text,
-            genre,
-            genre_scoring_guide,
-            prev_summary,
-            cross_chapter,
-            reviewer_llm,
+        # 2-5. 并行执行四个无数据依赖的评审维度（v7.9: asyncio.gather 并行化）
+        # 步骤 1（程序化分析）已完成后，以下四个维度之间无数据依赖：
+        #   - LLM 老书虫语义分析（独立，无依赖）
+        #   - LLM AI味语义分析（依赖步骤 1 的 programmatic.ai_style_metrics）
+        #   - 知情辩论（依赖步骤 1 的 programmatic + cross_chapter）
+        #   - 四维 LLM 评分（依赖步骤 1 的 cross_chapter）
+        # 各维度内部已有 try/except 降级保护，单维度失败不阻塞整体
+        # v7.2: 多模型分层支持 - 不同 LLM 执行不同维度的分析
+        # 参考 Fiction_Eval 实证：Claude 擅长宏观, DeepSeek 擅长中观, GPT-4o 擅长微观
+        # v7.8: async - 所有 LLM 调用均为 async
+        llm_or, llm_ais, debate, four_dim = await asyncio.gather(
+            llm_old_reader_analysis(
+                chapter_text=chapter_text,
+                genre=genre,
+                prev_summary=prev_summary,
+                llm=reviewer_llm,
+            ),
+            llm_ai_style_analysis(
+                chapter_text=chapter_text,
+                genre=genre,
+                programmatic_metrics=programmatic.ai_style_metrics.to_brief_string(),
+                llm=reviewer_llm,
+            ),
+            self._run_debate(
+                chapter_text,
+                genre,
+                genre_scoring_guide,
+                prev_summary,
+                programmatic,
+                cross_chapter,
+                debate_llm,
+            ),
+            self._run_four_dim_review(
+                chapter_text,
+                genre,
+                genre_scoring_guide,
+                prev_summary,
+                cross_chapter,
+                reviewer_llm,
+            ),
         )
 
         verdict = self._fuse(

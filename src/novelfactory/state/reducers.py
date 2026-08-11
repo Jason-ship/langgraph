@@ -58,8 +58,8 @@ def merge_delegations(old: list[dict] | None, new: list[dict] | None) -> list[di
     终态（completed/failed/cancelled）的记录不会被非终态记录覆盖。
     最新记录在前，最多保留 50 条。
     """
-    TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
-    MAX_DELEGATIONS = 50
+    _terminal_statuses = {"completed", "failed", "cancelled"}
+    _max_delegations = 50
 
     if not old:
         old = []
@@ -83,7 +83,7 @@ def merge_delegations(old: list[dict] | None, new: list[dict] | None) -> list[di
         existing = old_by_id.get(tid)
         if existing:
             # 终态不可逆
-            if existing.get("status") in TERMINAL_STATUSES:
+            if existing.get("status") in _terminal_statuses:
                 continue
             # 替换
             idx = next((i for i, r in enumerate(result) if (r.get("task_id") or r.get("id", "")) == tid), None)
@@ -93,8 +93,8 @@ def merge_delegations(old: list[dict] | None, new: list[dict] | None) -> list[di
             result.append(item)
 
     # 上限 50 条，最新在前
-    if len(result) > MAX_DELEGATIONS:
-        result = result[-MAX_DELEGATIONS:]
+    if len(result) > _max_delegations:
+        result = result[-_max_delegations:]
     return result
 
 
@@ -124,11 +124,13 @@ def merge_quality_scores(old: dict[str, float] | None, new: dict[str, float] | N
 def _add_chapters_compressed(
     old: list[dict] | None, new: list[dict] | None
 ) -> list[dict]:
-    """Chapter reducer with compression — append new chapters, compress old ones.
+    """Chapter reducer with compression - append new chapters, compress old ones.
 
-    v6.0: Replaces operator.add to prevent unbounded checkpoint growth in 1000+
-    chapter novels. Keeps only the most recent N chapters full, compresses older
-    entries to chapter_summary only.
+    v6.1: Optimized to avoid O(N²) list rebuild on every call. Only appends
+    new records to the end and delegates compression to
+    ``compress_completed_chapters`` when the list exceeds
+    ``COMPRESS_KEEP_RECENT_CHAPTERS``. Already-compressed records are skipped
+    during compression to prevent redundant reprocessing.
     """
     result = list(old or [])
     if new:
@@ -137,19 +139,7 @@ def _add_chapters_compressed(
     from novelfactory.config.constants import COMPRESS_KEEP_RECENT_CHAPTERS
 
     if len(result) > COMPRESS_KEEP_RECENT_CHAPTERS:
-        # Keep recent chapters full, compress older ones to summary-only
-        recent = result[-COMPRESS_KEEP_RECENT_CHAPTERS:]
-        old_compressed = result[:-COMPRESS_KEEP_RECENT_CHAPTERS]
-        compressed = []
-        for ch in old_compressed:
-            if isinstance(ch, dict):
-                compressed.append({
-                    "chapter_number": ch.get("chapter_number", "?"),
-                    "chapter_summary": (ch.get("chapter_summary", "") or "")[:200],
-                })
-            else:
-                compressed.append(ch)
-        return compressed + recent
+        return compress_completed_chapters(result, COMPRESS_KEEP_RECENT_CHAPTERS)
     return result
 
 
@@ -164,17 +154,23 @@ def _last_value(old: Any, new: Any) -> Any:
     return new
 
 
-def _chapter_key(chapter: dict) -> int:
-    """Extract chapter number from a chapter dict for sorting."""
-    return int(chapter.get("chapter_number", 0))
+def _chapter_key(chapter: dict) -> str:
+    """Build dedup key from (chapter_number, phase) for usage records.
+
+    Returns a string like ``"ch3_writing"`` so records from the same
+    chapter+phase can be deduplicated (newest wins).
+    """
+    return f"ch{int(chapter.get('chapter_number', 0))}_{chapter.get('phase', 'unknown')}"
 
 
 def compress_completed_chapters(
     completed: list[dict], keep_recent: int = 50
 ) -> list[dict]:
-    """Compress completed chapters list — keep recent N full, truncate older ones.
+    """Compress completed chapters list - keep recent N full, truncate older ones.
 
     Older chapters are reduced to {chapter_number, chapter_summary} only.
+    Already-compressed records (containing only chapter_number + chapter_summary
+    keys) are passed through without reprocessing to avoid redundant work.
     """
     if len(completed) <= keep_recent:
         return completed
@@ -183,46 +179,68 @@ def compress_completed_chapters(
     compressed = []
     for ch in older:
         if isinstance(ch, dict):
-            compressed.append({
-                "chapter_number": ch.get("chapter_number", "?"),
-                "chapter_summary": (ch.get("chapter_summary", "") or "")[:200],
-            })
+            # Skip already-compressed records (only chapter_number + chapter_summary)
+            if set(ch.keys()) <= {"chapter_number", "chapter_summary"}:
+                compressed.append(ch)
+            else:
+                compressed.append({
+                    "chapter_number": ch.get("chapter_number", "?"),
+                    "chapter_summary": (ch.get("chapter_summary", "") or "")[:200],
+                })
         else:
             compressed.append(ch)
     return compressed + recent
 
 
 def _add_usage(old: dict | None, new: dict | None) -> dict:
-    """Token usage accumulator — merges chapter usages into total_usage.
+    """Token usage accumulator — merges chapter usages with dedup + recompute.
 
     v6.0: Replaces operator.add for total_usage to prevent duplicate
     accumulation when subgraph states merge.
+    v8.0-fix: Dedup on (chapter_number, phase) with newest-wins, then
+    recompute prompt/completion/total tokens from the merged chapter_usages
+    to eliminate double-counting on chapter rewrites. Sorted by
+    (chapter_number, phase) for deterministic output.
     """
     old = old or {}
     new = new or {}
-    result = dict(old)
-    for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
-        result[key] = (result.get(key) or 0) + (new.get(key) or 0)
-    result["estimated_cost_cny"] = (
-        (result.get("estimated_cost_cny") or 0.0)
-        + (new.get("estimated_cost_cny") or 0.0)
+    if not new:
+        # 返回浅拷贝而非原引用，避免 reducer 结果与 state 中旧对象共享可变引用
+        return dict(old)
+
+    # 1. 合并 chapter_usages — 按 (chapter_number, phase) 去重，新记录覆盖旧记录
+    merged_usages: dict[str, dict] = {}
+    for usage in (old.get("chapter_usages") or []) + (new.get("chapter_usages") or []):
+        if isinstance(usage, dict):
+            merged_usages[_chapter_key(usage)] = usage
+
+    usages = sorted(
+        merged_usages.values(),
+        key=lambda u: (int(u.get("chapter_number", 0)), str(u.get("phase", ""))),
     )
-    old_breakdown = result.get("model_breakdown", {}) or {}
-    new_breakdown = new.get("model_breakdown", {}) or {}
+
+    # 2. 重算 totals — 从去重后的 chapter_usages 重新求和
+    prompt_tokens = sum(int(u.get("prompt_tokens") or 0) for u in usages)
+    completion_tokens = sum(int(u.get("completion_tokens") or 0) for u in usages)
+    total_tokens = prompt_tokens + completion_tokens
+
+    # 3. 合并 model_breakdown — 同模型最新记录覆盖旧记录
+    old_breakdown = old.get("model_breakdown") or {}
+    new_breakdown = new.get("model_breakdown") or {}
     merged_breakdown = dict(old_breakdown)
     for model, data in new_breakdown.items():
-        if model not in merged_breakdown:
-            merged_breakdown[model] = dict(data) if isinstance(data, dict) else data
-        else:
-            existing = merged_breakdown[model]
-            if isinstance(existing, dict) and isinstance(data, dict):
-                for k in ("prompt_tokens", "completion_tokens", "total_tokens"):
-                    existing[k] = (existing.get(k) or 0) + (data.get(k) or 0)
-    result["model_breakdown"] = merged_breakdown
-    old_usages = result.get("chapter_usages", []) or []
-    new_usages = new.get("chapter_usages", []) or []
-    result["chapter_usages"] = old_usages + new_usages
-    return result
+        merged_breakdown[model] = dict(data) if isinstance(data, dict) else data
+
+    return {
+        "chapter_usages": usages,
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": total_tokens,
+        "model_breakdown": merged_breakdown,
+        # 顶层费用字段保留累加语义（与 chapter_usages 独立记账）
+        "estimated_cost_cny": (old.get("estimated_cost_cny") or 0.0)
+        + (new.get("estimated_cost_cny") or 0.0),
+    }
 
 
 __all__ = [

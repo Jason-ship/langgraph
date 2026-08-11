@@ -13,7 +13,7 @@ from novelfactory.state.novel_state import NovelFactoryState
 logger = logging.getLogger(__name__)
 
 
-def load_longterm_memory(
+async def load_longterm_memory(
     state: NovelFactoryState, *, runtime: Runtime[NovelContext], store: Any = None
 ) -> dict:
     """Load cross-session project memory from BaseStore."""
@@ -26,7 +26,7 @@ def load_longterm_memory(
     namespace = ("novelfactory", project_id)
 
     try:
-        item = store.get(namespace, "project_meta")
+        item = await store.aget(namespace, "project_meta")
         if item:
             logger.info("[store] Loaded long-term memory for project_id=%s", project_id)
             return {"loaded_memory": item.value or {}}
@@ -36,7 +36,7 @@ def load_longterm_memory(
     return {"loaded_memory": {}}
 
 
-def save_longterm_memory(
+async def save_longterm_memory(
     state: NovelFactoryState, *, runtime: Runtime[NovelContext], store: Any = None
 ) -> dict:
     """Save project metadata to BaseStore on project completion."""
@@ -74,7 +74,7 @@ def save_longterm_memory(
     }
 
     try:
-        store.put(namespace, "project_meta", meta)
+        await store.aput(namespace, "project_meta", meta)
         logger.info("[store] Saved project meta for %s: %s", project_id, meta)
 
         thread_id = state.get("thread_id", "")

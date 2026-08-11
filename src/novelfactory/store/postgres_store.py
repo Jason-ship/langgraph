@@ -210,6 +210,45 @@ class PGStore:
                 ),
             )
 
+    def save_character_states_batch(
+        self, project: str, chapter: int, characters: dict
+    ) -> None:
+        """Batch save character states using a single connection (executemany).
+
+        Args:
+            project: Project name.
+            chapter: Chapter number.
+            characters: Mapping of character name -> state dict.
+        """
+        if not characters:
+            return
+        rows = [
+            (
+                project,
+                chapter,
+                char_name,
+                char_state.get("location", ""),
+                char_state.get("mood", ""),
+                char_state.get("power_level", ""),
+                char_state.get("status", "健在"),
+                json.dumps(char_state.get("relationships", {}), ensure_ascii=False),
+                json.dumps(char_state.get("knowledge", []), ensure_ascii=False),
+                json.dumps(char_state.get("items", []), ensure_ascii=False),
+                json.dumps(char_state, ensure_ascii=False),
+            )
+            for char_name, char_state in characters.items()
+        ]
+        with self._get_cursor() as cur:
+            cur.executemany(
+                """
+                INSERT INTO novel_character_states
+                    (project_name, chapter_number, character_name, location, mood,
+                     power_level, status, relationships, knowledge, items, raw_state)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+                rows,
+            )
+
     def get_latest_character_states(self, project: str) -> dict[str, dict]:
         with self._get_cursor() as cur:
             cur.execute(
@@ -350,6 +389,43 @@ class PGStore:
                     description,
                     json.dumps(related_chars or [], ensure_ascii=False),
                 ),
+            )
+
+    def save_plot_threads_batch(
+        self, project: str, threads: list[dict]
+    ) -> None:
+        """Batch save plot threads using a single connection (executemany).
+
+        Args:
+            project: Project name.
+            threads: List of dicts with keys thread_name, description, chapter,
+                     status (optional, default "open"), related_chars (optional).
+        """
+        if not threads:
+            return
+        rows = [
+            (
+                project,
+                t["thread_name"],
+                t.get("status", "open"),
+                t["chapter"],
+                t["description"],
+                json.dumps(t.get("related_chars", []), ensure_ascii=False),
+            )
+            for t in threads
+        ]
+        with self._get_cursor() as cur:
+            cur.executemany(
+                """
+                INSERT INTO novel_plot_threads
+                    (project_name, thread_name, status, created_chapter, description, related_characters)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                ON CONFLICT (project_name, thread_name) DO UPDATE SET
+                    status = EXCLUDED.status,
+                    description = EXCLUDED.description,
+                    related_characters = EXCLUDED.related_characters
+            """,
+                rows,
             )
 
     def get_open_threads(self, project: str) -> list[dict]:

@@ -47,6 +47,10 @@ def with_timeout(
             t = threading.Thread(target=target, daemon=True)
             t.start()
             if not stopped.wait(timeout=seconds):
+                # 超时后主动设置 stopped 事件，为 target 提供协作式取消信号。
+                # 注意：当前 target（LLM 调用）未检查 stopped 事件，实际无法中断
+                # 正在执行的 LLM 请求；daemon=True 作为最终保底，进程退出时线程随之销毁。
+                stopped.set()
                 return default
             if exc_info[0] is not None:
                 raise exc_info[0]
