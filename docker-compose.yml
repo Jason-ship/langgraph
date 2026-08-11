@@ -236,8 +236,10 @@ services:
       DEER_FLOW_ENV: development
       DEER_FLOW_INTERNAL_GATEWAY_BASE_URL: http://nginx:80
       NEXT_PUBLIC_APP_VERSION: ${NOVELFACTORY_VERSION:-8.0.0}
-      NEXT_PUBLIC_BACKEND_BASE_URL: ""
-      NEXT_PUBLIC_LANGGRAPH_BASE_URL: ""
+      # v8.0-fix: 后端基址指向 nginx（反向代理 API 8000），避免 server route
+      # (api/memory 等) 运行期 fallback 到 127.0.0.1:8001 导致 ECONNREFUSED
+      NEXT_PUBLIC_BACKEND_BASE_URL: http://nginx:80
+      NEXT_PUBLIC_LANGGRAPH_BASE_URL: http://nginx:80/api
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
     depends_on:

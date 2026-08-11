@@ -34,6 +34,10 @@ RUN cd /app/frontend && pnpm install --frozen-lockfile
 # and the frontend falls back to package.json's version.
 ARG APP_VERSION=""
 ENV NEXT_PUBLIC_APP_VERSION=$APP_VERSION
+# v8.0-fix: 构建期注入内部网关地址 — next.config.js rewrites 在构建期求值，
+# 缺省时 fallback 到 127.0.0.1:8001（容器内无该服务 → 代理 ECONNREFUSED）。
+# 指向 nginx:80（反向代理到 API 8000），与运行时 DEER_FLOW_INTERNAL_GATEWAY_BASE_URL 一致。
+ENV DEER_FLOW_INTERNAL_GATEWAY_BASE_URL=http://nginx:80
 RUN cd /app/frontend && SKIP_ENV_VALIDATION=1 pnpm build
 
 # ── Prod: minimal runtime with pre-built output ───────────────────────────────

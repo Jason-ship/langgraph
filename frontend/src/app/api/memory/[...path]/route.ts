@@ -1,7 +1,12 @@
 import type { NextRequest } from "next/server";
 
-const BACKEND_BASE_URL =
-  process.env.NEXT_PUBLIC_BACKEND_BASE_URL ?? "http://127.0.0.1:8001";
+// v8.0-fix: 空字符串/空白 env 不应走 ?? fallback（?? 只对 null/undefined 生效）。
+// 优先级：NEXT_PUBLIC_BACKEND_BASE_URL → DEER_FLOW_INTERNAL_GATEWAY_BASE_URL → nginx:80。
+const BACKEND_BASE_URL = (
+  process.env.NEXT_PUBLIC_BACKEND_BASE_URL?.trim() ||
+  process.env.DEER_FLOW_INTERNAL_GATEWAY_BASE_URL?.trim() ||
+  "http://nginx:80"
+).replace(/\/+$/, "");
 
 function buildBackendUrl(pathname: string) {
   return new URL(pathname, BACKEND_BASE_URL);
