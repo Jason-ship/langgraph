@@ -476,7 +476,10 @@ async def get_ui(assistant_id: str) -> dict:
 @app.get("/favicon.ico", include_in_schema=False)
 async def favicon():
     """Handle favicon requests to avoid 404 in logs."""
-    return JSONResponse(status_code=204)
+    from fastapi.responses import Response
+
+    # v8.0-fix: JSONResponse 必须传 content 参数（原实现抛 TypeError 500）
+    return Response(status_code=204)
 
 
 # ── Prometheus Metrics (v7.8) ─────────────────────────────────────────────────
