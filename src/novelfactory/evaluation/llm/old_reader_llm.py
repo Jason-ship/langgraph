@@ -290,7 +290,7 @@ async def llm_old_reader_analysis(
     try:
         prompt = _build_prompt(chapter_text, genre=genre, prev_summary=prev_summary)
         response = await async_llm_call_with_retry(
-            caller_llm, prompt, step_name="llm_old_reader", retry_policy="reviewer"
+            caller_llm.ainvoke, prompt, step_name="llm_old_reader", retry_policy="reviewer"
         )
         raw = response.content if hasattr(response, "content") else str(response)
         result = _parse_response(raw)

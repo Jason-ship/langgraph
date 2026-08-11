@@ -19,7 +19,7 @@ from novelfactory.evaluation.schemas import (
 )
 
 if TYPE_CHECKING:
-    from novelfactory.agents.infra import async_llm_call_with_retry
+    pass
 
 logger = logging.getLogger(__name__)
 
@@ -233,7 +233,7 @@ class CalibrationRunner:
             from novelfactory.agents.infra import async_llm_call_with_retry
 
             response = await async_llm_call_with_retry(
-                reviewer_llm, prompt, step_name="calibration_eval"
+                reviewer_llm.ainvoke, prompt, step_name="calibration_eval"
             )
             raw = response.content if hasattr(response, "content") else str(response)
             parsed, err = validate_json_output(

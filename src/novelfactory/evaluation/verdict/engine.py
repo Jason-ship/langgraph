@@ -380,7 +380,7 @@ class VerdictEngine:
         if use_close_prompt:
             score_prompt = SCORE_ONLY_PROMPT
             score_response = await async_llm_call_with_retry(
-                llm, score_prompt, step_name="four_dim_score_only"
+                llm.ainvoke, score_prompt, step_name="four_dim_score_only"
             )
             score_raw = (
                 score_response.content
@@ -455,7 +455,7 @@ class VerdictEngine:
         prompt = "\n".join(prompt_parts)
 
         try:
-            response = await async_llm_call_with_retry(llm, prompt, step_name="four_dim_review")
+            response = await async_llm_call_with_retry(llm.ainvoke, prompt, step_name="four_dim_review")
             raw = response.content if hasattr(response, "content") else str(response)
             result = self._parse_four_dim_response(raw)
             # v7.0: 归一化任何 "第N段" 引用为 [Pi]

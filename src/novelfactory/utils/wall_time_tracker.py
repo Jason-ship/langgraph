@@ -28,7 +28,6 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from langchain_core.callbacks import BaseCallbackHandler
-from langchain_core.messages import BaseMessage
 from langchain_core.outputs import LLMResult
 
 
@@ -148,6 +147,37 @@ class WallTimeTracker:
             }
             for r in records[offset : offset + limit]
         ]
+
+    def to_dict(self) -> dict[str, Any]:
+        """导出完整追踪数据（records + 汇总），供 coordinator 写入 state。
+
+        与 ``WallTimeCallbackHandler.to_dict`` 输出结构保持一致。
+        """
+        return {
+            "records": [
+                {
+                    "node": r.node_name,
+                    "duration_s": round(r.duration_seconds, 2),
+                    "tokens": r.token_count,
+                    "llm_calls": r.llm_calls,
+                    "phase": r.phase,
+                    "metadata": r.metadata,
+                }
+                for r in self._records.values()
+            ],
+            "total_s": round(self.get_total_seconds(), 2),
+            "total_tokens": self.get_total_tokens(),
+            "total_llm_calls": sum(r.llm_calls for r in self._records.values()),
+            "phase_breakdown": {
+                phase: {
+                    "seconds": round(s["seconds"], 2),
+                    "tokens": s["tokens"],
+                    "llm_calls": s["llm_calls"],
+                    "nodes": s["node_count"],
+                }
+                for phase, s in self.get_phase_totals().items()
+            },
+        }
 
     def report(self) -> str:
         lines: list[str] = ["\n===== Wall Time Report ====="]

@@ -370,7 +370,7 @@ class InformedDebateEngine:
         )
 
         prompt = "\n".join(prompt_parts)
-        response = await async_llm_call_with_retry(llm, prompt, step_name="editor_review_informed")
+        response = await async_llm_call_with_retry(llm.ainvoke, prompt, step_name="editor_review_informed")
         raw = response.content if hasattr(response, "content") else str(response)
         parsed = parse_markdown_sections(raw)
 
@@ -436,7 +436,7 @@ class InformedDebateEngine:
         )
 
         prompt = "\n".join(prompt_parts)
-        response = await async_llm_call_with_retry(llm, prompt, step_name="reader_review_informed")
+        response = await async_llm_call_with_retry(llm.ainvoke, prompt, step_name="reader_review_informed")
         raw = response.content if hasattr(response, "content") else str(response)
         parsed = parse_markdown_sections(raw)
 
@@ -509,7 +509,7 @@ class InformedDebateEngine:
         )
 
         prompt = "\n".join(prompt_parts)
-        response = await async_llm_call_with_retry(llm, prompt, step_name="critic_review_informed")
+        response = await async_llm_call_with_retry(llm.ainvoke, prompt, step_name="critic_review_informed")
         raw = response.content if hasattr(response, "content") else str(response)
         parsed = parse_markdown_sections(raw)
 
@@ -563,7 +563,7 @@ class InformedDebateEngine:
 
         prompt = "\n".join(prompt_parts)
         response = await async_llm_call_with_retry(
-            llm, prompt, step_name=f"critic_rebuttal_r{round_num}"
+            llm.ainvoke, prompt, step_name=f"critic_rebuttal_r{round_num}"
         )
         raw = response.content if hasattr(response, "content") else str(response)
         parsed = parse_rebuttal(raw)
@@ -614,7 +614,7 @@ class InformedDebateEngine:
         prompt = "\n".join(prompt_parts)
 
         response = await async_llm_call_with_retry(
-            llm, prompt, step_name=f"editor_rebuttal_r{round_num}"
+            llm.ainvoke, prompt, step_name=f"editor_rebuttal_r{round_num}"
         )
         raw = response.content if hasattr(response, "content") else str(response)
         parsed = parse_rebuttal(raw)
@@ -664,7 +664,7 @@ class InformedDebateEngine:
         prompt = "\n".join(prompt_parts)
 
         response = await async_llm_call_with_retry(
-            llm, prompt, step_name=f"reader_rebuttal_r{round_num}"
+            llm.ainvoke, prompt, step_name=f"reader_rebuttal_r{round_num}"
         )
         raw = response.content if hasattr(response, "content") else str(response)
         parsed = parse_rebuttal(raw)

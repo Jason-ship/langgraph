@@ -202,7 +202,7 @@ async def llm_ai_style_analysis(
             chapter_text, genre=genre, programmatic_metrics=programmatic_metrics
         )
         response = await async_llm_call_with_retry(
-            caller_llm, prompt, step_name="llm_ai_style", retry_policy="reviewer"
+            caller_llm.ainvoke, prompt, step_name="llm_ai_style", retry_policy="reviewer"
         )
         raw = response.content if hasattr(response, "content") else str(response)
         result = _parse_response(raw)
