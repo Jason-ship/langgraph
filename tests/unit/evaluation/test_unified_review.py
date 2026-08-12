@@ -97,3 +97,151 @@ def test_parse_garbage_returns_none():
 
 def test_parse_empty_returns_none():
     assert parse_review_output("") is None
+
+
+# ── Task 3: prompts ────────────────────────────────────────────────────────
+
+from novelfactory.evaluation.unified.prompts import (
+    build_arbitration_prompt,
+    build_quick_recheck_prompt,
+    build_unified_review_prompt,
+)
+
+
+def test_build_unified_prompt_contains_core_directives():
+    p = build_unified_review_prompt(
+        chapter_text="测试正文" * 50, genre="都市", prev_summary="前情", guide="题材指南"
+    )
+    for keyword in (
+        "[评分] final=", "老书虫视角", "番茄编辑视角", "读者视角", "评论员视角",
+        "[废话段]", "[爽点]", "网文爽感铁律", "题材评分指引", "前章摘要",
+    ):
+        assert keyword in p
+
+
+def test_build_recheck_prompt_injects_old_issues():
+    p = build_quick_recheck_prompt(
+        chapter_text="正文", old_issues=["P8 战力突兀", "P3 水文"], old_score=68.0
+    )
+    assert "P8 战力突兀" in p
+    assert "P3 水文" in p
+    assert "68" in p
+
+
+def test_build_arbitration_prompt_injects_disagreements():
+    p = build_arbitration_prompt(
+        disagreements=["severe: P8 战力突兀（老书虫 vs 番茄编辑）"], old_score=78.5
+    )
+    assert "P8 战力突兀" in p
+    assert "78.5" in p
+
+
+# ── Task 4A: 仲裁模块 ──────────────────────────────────────────────────────
+
+from novelfactory.evaluation.unified.arbitration import arbitrate, parse_arbitration
+
+ARB = """<review_analysis>权衡：老书虫看重战力一致，番茄编辑看重节奏。</review_analysis>
+[裁决] 采纳老书虫：P8 需补战力铺垫，但不必重写整章
+[分数修正] final: 78.5 -> 74.0
+[备注] REFINE"""
+
+
+def test_parse_arbitration():
+    r = parse_arbitration(ARB)
+    assert r is not None
+    assert r["new_score"] == 74.0
+    assert r["action"] == "REFINE"
+
+
+def test_parse_arbitration_garbage():
+    assert parse_arbitration("乱码") is None
+
+
+class _FakeArbLlm:
+    async def ainvoke(self, *a, **kw):
+        return type("R", (), {"content": ARB})()
+
+
+def test_arbitrate_with_llm():
+    score = asyncio.run(
+        arbitrate(_FakeArbLlm(), disagreements=["severe: P8 战力突兀"], old_score=78.5)
+    )
+    assert score == 74.0
+
+
+def test_arbitrate_empty_returns_old():
+    score = asyncio.run(arbitrate(_FakeArbLlm(), disagreements=[], old_score=78.5))
+    assert score == 78.5
+
+
+# ── Task 4: 统一评审引擎 ────────────────────────────────────────────────────
+
+from novelfactory.evaluation.unified.engine import UnifiedReviewEngine
+
+OK_REVIEW = """<review_analysis>ok</review_analysis>
+[评分] final=82.0
+[四维-剧情逻辑] 27/30
+[四维-文笔] 21/25
+[四维-人物] 22/25
+[四维-世界观] 18/20
+[毒点] 无
+[爽点] 打脸|P5; 升级|P14; 奖励|P20
+[AI味] 0.75
+[吸引力] 88  [沉浸] 90
+[跨章] 84
+[衰减] none
+[废话段] 无
+[跳跃] 无
+评审意见：
+- 老书虫视角：爽点密
+- 番茄编辑视角：钩子强
+- 读者视角：沉浸
+- 评论员视角：逻辑通
+- 分歧点：无
+- 修复指令：P5 补一句反派反应"""
+
+
+class _FakeLlm:
+    def __init__(self, payload):
+        self._payload = payload
+
+    async def ainvoke(self, *a, **kw):
+        return type("R", (), {"content": self._payload})()
+
+
+def test_engine_evaluate_success():
+    engine = UnifiedReviewEngine(_FakeLlm(OK_REVIEW))
+    r = asyncio.run(engine.evaluate(chapter_text="正文", genre="都市", prev_summary="", guide=""))
+    assert r.failed is False
+    assert r.final_score == 82.0
+    assert r.shuangdian_count == 3
+
+
+def test_engine_evaluate_retry_then_fallback():
+    engine = UnifiedReviewEngine(_FakeLlm("不可解析"))
+    r = asyncio.run(
+        engine.evaluate(chapter_text="正文", genre="都市", prev_summary="", guide="", retries=1)
+    )
+    assert r.failed is True
+    assert r.final_score == 60.0  # fallback
+    assert r.retried is True
+
+
+def test_engine_evaluate_arbitrates_severe_disagreement():
+    payload = OK_REVIEW.replace(
+        "分歧点：无", "分歧点：severe 老书虫认为 P8 战力突兀，番茄编辑认为可接受"
+    )
+    engine = UnifiedReviewEngine(_FakeLlm(payload))
+    # _FakeLlm 对仲裁调用也返回同一 payload；parse_arbitration 提取不到 [分数修正] → 返回原分
+    r = asyncio.run(engine.evaluate(chapter_text="正文", genre="都市", prev_summary="", guide=""))
+    assert r.failed is False
+    assert r.perspective_disagreements  # 仲裁被触发但原分保留（mock 无 [分数修正]）
+
+
+def test_engine_quick_recheck():
+    engine = UnifiedReviewEngine(_FakeLlm(OK_REVIEW))
+    r = asyncio.run(
+        engine.quick_recheck(chapter_text="正文", old_issues=["P8 战力突兀"], old_score=68.0)
+    )
+    assert r.failed is False
+    assert r.final_score == 82.0
