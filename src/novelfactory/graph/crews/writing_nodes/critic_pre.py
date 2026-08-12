@@ -13,8 +13,10 @@ from __future__ import annotations
 from typing import Any
 
 from novelfactory.agents.infra import get_logger, async_llm_call_with_retry
-from novelfactory.evaluation.debate.parser import parse_markdown_sections
-from novelfactory.evaluation.debate.prompts import CRITIC_PRE_ASSESSMENT_PROMPT
+from novelfactory.evaluation.utils import parse_markdown_sections
+from novelfactory.graph.crews.writing_nodes.critic_pre_prompt import (
+    CRITIC_PRE_ASSESSMENT_PROMPT,
+)
 
 logger = get_logger(__name__)
 
@@ -54,7 +56,11 @@ async def critic_pre_assessment_node(state: dict[str, Any]) -> dict[str, Any]:
         from novelfactory.config.llm import get_reviewer_llm
 
         llm = get_reviewer_llm()
-        response = await async_llm_call_with_retry(llm, prompt, step_name="critic_pre_assessment")
+        # v8.1-fix: get_reviewer_llm 返回 RunnableWithFallbacks 包装，
+        # 不可直接调用；传入绑定方法 llm.ainvoke 供 async_llm_call_with_retry 执行。
+        response = await async_llm_call_with_retry(
+            llm.ainvoke, prompt, step_name="critic_pre_assessment"
+        )
         raw = response.content if hasattr(response, "content") else str(response)
         parsed = parse_markdown_sections(raw)
 

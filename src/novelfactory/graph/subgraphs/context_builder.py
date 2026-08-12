@@ -251,7 +251,7 @@ def _load_state_node(state: ContextBuilderState) -> dict:
                     )
                     # v7.3: 情感一致性过滤 — 过滤情感弧线不一致的检索结果
                     if similar:
-                        from novelfactory.evaluation.programmatic import (
+                        from novelfactory.graph.retrieval import (
                             SentimentConsistencyFilter,
                         )
 
