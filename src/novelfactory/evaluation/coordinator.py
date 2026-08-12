@@ -75,9 +75,15 @@ async def _try_quick_recheck(
     # 或字符串；统一取 .value 后大写比较，避免 str(枚举)="VerdictLevel.REFINE" 判定失败
     _level = prev_verdict.get("level")
     if str(getattr(_level, "value", _level)).upper() not in ("REFINE", "REWRITE"):
+        logger.info("[verdict_engine] 跳过轻量复查：上轮 level=%r", _level)
         return None
     issues = _build_recheck_issues(prev_verdict)
     if not issues:
+        fb = prev_verdict.get("feedback") or {}
+        logger.info(
+            "[verdict_engine] 跳过轻量复查：上轮无问题清单 feedback_keys=%s",
+            sorted(fb.keys()),
+        )
         return None
 
     from novelfactory.evaluation.unified import UnifiedReviewEngine
@@ -92,10 +98,15 @@ async def _try_quick_recheck(
         logger.warning("[verdict_engine] 轻量复查失败，走完整评审: %s", e)
         return None
     if ur is None or ur.failed:
+        logger.info("[verdict_engine] 轻量复查未通过（failed=%s），走完整评审", getattr(ur, "failed", None))
         return None
     refine_th = float(get_param("verdict.refine_threshold") or VERDICT_REFINE_THRESHOLD)
     if ur.final_score < refine_th:
-        return None  # 复查未达标 → 完整评审兜底
+        logger.info(
+            "[verdict_engine] 轻量复查未达标（%.1f < %.1f），走完整评审",
+            ur.final_score, refine_th,
+        )
+        return None
     if sw:
         sw.write(f"  [轻量复查] 修复后回归 {ur.final_score:.1f}/100（达标）\n")
     return ur
