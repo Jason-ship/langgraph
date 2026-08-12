@@ -387,9 +387,11 @@ from novelfactory.api.time_travel import router as time_travel_router  # noqa: E
 from novelfactory.server.routes.assistants import (  # noqa: E402
     router as assistants_router,
 )
+from novelfactory.server.routes.branches import router as branches_router  # noqa: E402
 from novelfactory.server.routes.channel_connections import (  # noqa: E402
     router as channel_connections_router,
 )
+from novelfactory.server.routes.compact import router as compact_router  # noqa: E402
 from novelfactory.server.routes.console import (  # noqa: E402
     router as console_router,
 )
@@ -410,16 +412,21 @@ from novelfactory.server.routes.input_polish import (  # noqa: E402
 from novelfactory.server.routes.memory import (  # noqa: E402
     router as memory_router,
 )
+from novelfactory.server.routes.quality_feedback import (  # noqa: E402
+    router as quality_feedback_router,
+)
+from novelfactory.server.routes.regenerate import (  # noqa: E402
+    router as regenerate_router,
+)
 from novelfactory.server.routes.runs import router as runs_router  # noqa: E402
 from novelfactory.server.routes.store import router as store_router  # noqa: E402
 from novelfactory.server.routes.suggestions import (  # noqa: E402
     router as suggestions_router,
 )
-from novelfactory.server.routes.branches import router as branches_router  # noqa: E402
 from novelfactory.server.routes.threads import router as threads_router  # noqa: E402
-from novelfactory.server.routes.compact import router as compact_router  # noqa: E402
-from novelfactory.server.routes.token_usage import router as token_usage_router  # noqa: E402
-from novelfactory.server.routes.regenerate import router as regenerate_router  # noqa: E402
+from novelfactory.server.routes.token_usage import (  # noqa: E402
+    router as token_usage_router,
+)
 from novelfactory.server.stub_router import router as stub_router  # noqa: E402
 
 app.include_router(assistants_router)
@@ -440,6 +447,7 @@ app.include_router(branches_router)
 app.include_router(compact_router)
 app.include_router(token_usage_router)
 app.include_router(regenerate_router)
+app.include_router(quality_feedback_router)
 app.include_router(time_travel_router)
 
 # ── DeerFlow Agent & Skills Routes ────────────────────────────────────────────
@@ -454,6 +462,7 @@ app.include_router(stub_router)
 
 # ── Static Files ──────────────────────────────────────────────────────────────
 import os as _os
+
 from fastapi.staticfiles import StaticFiles
 
 _static_dir = _os.path.join(_os.path.dirname(__file__), "static")

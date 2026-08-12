@@ -34,6 +34,33 @@ INTENT_KEYWORDS: dict[str, list[str]] = {
     "review_agent": ["评审", "审核", "评价", "修改", "润色", "质量", "评分", "review", "检查"],
 }
 
+# ── Quality Tuning Intent ─────────────────────────────────────────────────────
+# Keywords that route to the quality parameter tuning agent.
+# These are checked BEFORE generic keyword routing so tuning requests
+# don't get captured by review_agent.
+QUALITY_TUNER_KEYWORDS: list[str] = [
+    "调参", "参数", "权重", "阈值", "评分标准", "质量标准",
+    "AI味", "机器味", "套话", "模板化", "句式重复", "词汇单调",
+    "毒点", "虐主", "圣母", "降智", "NTR", "战力崩坏", "水文",
+    "爽点", "不够爽", "打脸不够", "装逼不够",
+    "通过线", "重写次数", "润色次数", "辩论轮数", "衰减", "校准",
+    "调高", "调低", "太严了", "太松了", "分数虚高", "分数偏低",
+    "时间旅行", "回溯", "重评", "验证效果", "回滚参数", "参数变更",
+]
+
+
+def is_quality_tuner_request(content: str) -> bool:
+    """检测是否为质量参数调优请求。
+
+    Returns:
+        True 时路由到 quality_tuner_agent。
+    """
+    for keyword in QUALITY_TUNER_KEYWORDS:
+        if keyword in content:
+            logger.debug("[ChatSupervisor] Quality tuner keyword match: '%s'", keyword)
+            return True
+    return False
+
 # ── Batch Mode Detection ──────────────────────────────────────────────────────
 # Keywords that trigger the bridge agent to delegate to the batch pipeline.
 # These are checked BEFORE keyword/LLM routing so batch mode takes priority.
@@ -119,13 +146,19 @@ async def analyze_intent(state: dict[str, Any]) -> str:
             logger.info("[ChatSupervisor] Batch mode requested but no setup context, routing to story_agent")
             return "story_agent"
 
-    # 3. Keyword-based routing (fast path)
+    # 3. Quality tuning detection (before generic keyword routing)
+    # When the user requests parameter tuning, route to quality_tuner_agent.
+    if is_quality_tuner_request(content):
+        logger.info("[ChatSupervisor] Quality tuner request → quality_tuner_agent")
+        return "quality_tuner_agent"
+
+    # 4. Keyword-based routing (fast path)
     agent = _keyword_route(content)
     if agent:
         logger.info("[ChatSupervisor] Keyword route → %s", agent)
         return agent
 
-    # 4. LLM-based intent analysis (slow path)
+    # 5. LLM-based intent analysis (slow path)
     agent = await _llm_intent_analysis(content, state)
     logger.info("[ChatSupervisor] LLM intent analysis → %s", agent)
     return agent
@@ -163,6 +196,7 @@ async def _llm_intent_analysis(content: str, state: dict[str, Any]) -> str:
             "- story_agent: 故事策划、世界观构建、角色设定、大纲规划\n"
             "- writing_agent: 章节写作、内容生成、续写\n"
             "- review_agent: 评审讨论、质量检查、修改建议\n"
+            "- quality_tuner_agent: 质量参数调整、评分标准调整、权重调优\n"
             "- chat_agent: 普通对话、非创作类问题\n\n"
             f"用户消息: {content[:500]}\n"
             f"上下文: {context[:300]}\n\n"
@@ -199,7 +233,10 @@ def _extract_agent_name(response: Any) -> str:
     text = response.content if hasattr(response, "content") else str(response)
     text = text.strip().lower()
 
-    valid_agents = {"story_agent", "writing_agent", "review_agent", "chat_agent"}
+    valid_agents = {
+        "story_agent", "writing_agent", "review_agent",
+        "quality_tuner_agent", "chat_agent",
+    }
     for agent in valid_agents:
         if agent in text:
             return agent

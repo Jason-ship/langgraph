@@ -49,6 +49,19 @@ MAX_DEBATE_ROUNDS = 3  # v7.0: 1→3，支持多轮知情辩论
 _CONVERGENCE_IDLE_ROUNDS = 2
 
 
+def _get_quality_param(key: str, default: float | int) -> float | int:
+    """读取动态质量参数（quality_center 覆盖，默认常量值）。"""
+    try:
+        from novelfactory.config.quality_params import quality_center
+
+        val = quality_center.get(key)
+        if val is not None:
+            return val
+    except Exception:
+        pass
+    return default
+
+
 class InformedDebateEngine:
     """知情辩论引擎 — 程序化结果注入的多轮辩论。
 
@@ -254,7 +267,15 @@ class InformedDebateEngine:
         convergence = False
         idle_rounds = 0  # 连续无新增问题轮次
 
-        for round_num in range(1, MAX_DEBATE_ROUNDS + 1):
+        # 动态辩论参数（quality_center 可覆盖）
+        max_rounds = int(
+            _get_quality_param("debate.max_rounds", MAX_DEBATE_ROUNDS)
+        )
+        convergence_idle_rounds = int(
+            _get_quality_param("debate.convergence_idle_rounds", _CONVERGENCE_IDLE_ROUNDS)
+        )
+
+        for round_num in range(1, max_rounds + 1):
             # v7.3: 反驳轮也随机化发言顺序
             rebuttal_order = random.sample(["editor", "reader", "critic"], 3)
 
@@ -319,12 +340,12 @@ class InformedDebateEngine:
                 idle_rounds += 1
             else:
                 idle_rounds = 0
-            if idle_rounds >= _CONVERGENCE_IDLE_ROUNDS:
+            if idle_rounds >= convergence_idle_rounds:
                 convergence = True
                 logger.info(
                     "[知情辩论] 第%d轮连续%d轮无新增问题，缺省收敛",
                     round_num,
-                    _CONVERGENCE_IDLE_ROUNDS,
+                    convergence_idle_rounds,
                 )
                 break
 

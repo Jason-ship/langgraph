@@ -9,14 +9,14 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from langchain_core.messages import AIMessage
+from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
-from langchain_core.messages import AIMessage
-from langchain_core.runnables import RunnableConfig
-
 from novelfactory.config.constants import RECURSION_LIMIT
 from novelfactory.graph.chat.agents.chat_agent import chat_agent_node
+from novelfactory.graph.chat.agents.quality_tuner_agent import quality_tuner_agent_node
 from novelfactory.graph.chat.agents.review_agent import review_agent_node
 from novelfactory.graph.chat.agents.story_agent import story_agent_node
 from novelfactory.graph.chat.agents.writing_agent import writing_agent_node
@@ -49,6 +49,7 @@ def build_lead_agent_graph(checkpointer: Any = None) -> CompiledStateGraph:
     builder.add_node("writing_agent", _wrap(writing_agent_node))
     builder.add_node("review_agent", _wrap(review_agent_node))
     builder.add_node("chat_agent", _wrap(chat_agent_node))
+    builder.add_node("quality_tuner_agent", _wrap(quality_tuner_agent_node))
     builder.add_node("save_memory", _wrap(save_memory_node))
 
     # ── Bridge Agent (batch pipeline delegation) ──
@@ -70,13 +71,17 @@ def build_lead_agent_graph(checkpointer: Any = None) -> CompiledStateGraph:
             "writing_agent": "writing_agent",
             "review_agent": "review_agent",
             "chat_agent": "chat_agent",
+            "quality_tuner_agent": "quality_tuner_agent",
             "bridge_agent": "bridge_agent",
             "save_memory": "save_memory",
         },
     )
 
     # Sub-agents return to supervisor
-    for agent in ["story_agent", "writing_agent", "review_agent", "chat_agent", "bridge_agent"]:
+    for agent in [
+        "story_agent", "writing_agent", "review_agent", "chat_agent",
+        "quality_tuner_agent", "bridge_agent",
+    ]:
         builder.add_edge(agent, "chat_supervisor")
 
     builder.add_edge("save_memory", END)
@@ -186,7 +191,10 @@ def _route_from_supervisor(state: LeadAgentState) -> str:
         return "save_memory"
     # All sub-agents (story_agent, writing_agent, review_agent, chat_agent)
     # are valid routing targets.  The supervisor itself is never a valid target.
-    if agent not in {"story_agent", "writing_agent", "review_agent", "chat_agent", "bridge_agent", "save_memory"}:
+    if agent not in {
+        "story_agent", "writing_agent", "review_agent", "chat_agent",
+        "quality_tuner_agent", "bridge_agent", "save_memory",
+    }:
         logger.warning("[ChatSupervisor] Unknown agent '%s', routing to chat_agent", agent)
         return "chat_agent"
     return agent

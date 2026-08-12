@@ -80,6 +80,28 @@ class CalibrationModule:
         Returns:
             CalibrationResult
         """
+        # 动态校准阈值（quality_center 可覆盖）
+        llm_virtual_high = float(
+            self._get_quality_param(
+                "calibration.llm_virtual_high", self._LLM_VIRTUAL_HIGH_THRESHOLD
+            )
+        )
+        programmatic_low = float(
+            self._get_quality_param(
+                "calibration.programmatic_low", self._PROGRAMMATIC_LOW_THRESHOLD
+            )
+        )
+        short_text_llm_weight = float(
+            self._get_quality_param(
+                "calibration.short_text_llm_weight", self._SHORT_TEXT_LLM_WEIGHT
+            )
+        )
+        severe_toxic_cap = float(
+            self._get_quality_param(
+                "calibration.severe_toxic_cap", self._SEVERE_TOXIC_SCORE_CAP
+            )
+        )
+
         score = final_score
         calibrated = False
         reason = ""
@@ -88,8 +110,8 @@ class CalibrationModule:
         # DeepSeek V4 Flash 倾向于给满分，当 LLM 分 >= 90 但程序化分 < 0.5 时
         # 将分数压到 70-85 区间，恢复评分区分度
         if (
-            quality_score >= self._LLM_VIRTUAL_HIGH_THRESHOLD
-            and programmatic.programmatic_score < self._PROGRAMMATIC_LOW_THRESHOLD
+            quality_score >= llm_virtual_high
+            and programmatic.programmatic_score < programmatic_low
         ):
             score = 70.0 + programmatic.programmatic_score * 30.0
             calibrated = True
@@ -102,13 +124,13 @@ class CalibrationModule:
         # 规则2: 短文本降级
         # 程序化分析无法执行时，降低程序化权重，以 LLM 分为主
         if programmatic.is_short_text:
-            score = quality_score * self._SHORT_TEXT_LLM_WEIGHT + score * (
-                1.0 - self._SHORT_TEXT_LLM_WEIGHT
+            score = quality_score * short_text_llm_weight + score * (
+                1.0 - short_text_llm_weight
             )
             calibrated = True
             reason = (
                 f"短文本降级: 以LLM分主导 "
-                f"({quality_score:.0f}×{self._SHORT_TEXT_LLM_WEIGHT} + {final_score:.1f}×{1.0 - self._SHORT_TEXT_LLM_WEIGHT:.1f})"
+                f"({quality_score:.0f}×{short_text_llm_weight} + {final_score:.1f}×{1.0 - short_text_llm_weight:.1f})"
             )
             logger.info("[校准] %s", reason)
 
@@ -131,7 +153,7 @@ class CalibrationModule:
                     llm_severe_toxic,
                 )
             else:
-                cap = self._SEVERE_TOXIC_SCORE_CAP
+                cap = severe_toxic_cap
                 if score > cap:
                     score = cap
                     calibrated = True
@@ -146,6 +168,19 @@ class CalibrationModule:
             calibrated=calibrated,
             reason=reason,
         )
+
+    @staticmethod
+    def _get_quality_param(key: str, default: float) -> float:
+        """读取动态质量参数（quality_center 覆盖，默认类常量）。"""
+        try:
+            from novelfactory.config.quality_params import quality_center
+
+            val = quality_center.get(key)
+            if val is not None:
+                return float(val)
+        except Exception:
+            pass
+        return default
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

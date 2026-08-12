@@ -230,15 +230,17 @@ for words in SENSORY_WORDS.values():
 ALL_SENSORY_EMOTION.update(EMOTION_WORDS)
 
 # ========== 维度权重 ==========
+# v9.0: 优化底板 — 提高 cliche_ratio（模板套话，用户最敏感）和 semantic_smoothness
+# （语义级检测最接近人类感知），降低易误伤的 sentence_length/lexical/punctuation/dialogue。
 AI_WEIGHTS = {
     "repetition_ngram": 0.25,
-    "sentence_length_variance": 0.20,
-    "lexical_diversity": 0.18,
-    "cliche_ratio": 0.15,
-    "punctuation_rhythm": 0.10,
-    "dialogue_ratio": 0.07,
+    "sentence_length_variance": 0.18,  # v9.0: 原0.20（对古风/散文易误伤）
+    "lexical_diversity": 0.16,  # v9.0: 原0.18
+    "cliche_ratio": 0.20,  # v9.0: 原0.15（模板套话最直观）
+    "punctuation_rhythm": 0.08,  # v9.0: 原0.10（对话体不敏感）
+    "dialogue_ratio": 0.05,  # v9.0: 原0.07（易误伤高对话章节）
     "sensory_emotion_density": 0.03,
-    "semantic_smoothness": 0.02,
+    "semantic_smoothness": 0.05,  # v9.0: 原0.02（语义级检测准确）
 }
 
 
@@ -712,7 +714,18 @@ def analyze_ai_style(text: str, genre: str | None = None) -> AIStyleResult:
     }
 
     # 加权求和得到 AI 味指数
-    ai_style_score = sum(metrics_raw[key] * AI_WEIGHTS[key] for key in AI_WEIGHTS)
+    # 动态权重（quality_center 可覆盖 AI_WEIGHTS）
+    weights = dict(AI_WEIGHTS)
+    try:
+        from novelfactory.config.quality_params import quality_center
+
+        for k in list(weights):
+            val = quality_center.get(f"ai_style.weights.{k}")
+            if val is not None:
+                weights[k] = float(val)
+    except Exception:
+        pass
+    ai_style_score = sum(metrics_raw[key] * weights[key] for key in weights)
 
     # 归一化到 0-1
     ai_style_score = min(1.0, max(0.0, ai_style_score))
@@ -763,7 +776,7 @@ def analyze_ai_style(text: str, genre: str | None = None) -> AIStyleResult:
             "sentence_count": len(re.split(r"[。！？\n]+", text)),
             "jieba_available": _jieba_available,
             "semantic_available": _semantic_available,
-            "weights_used": AI_WEIGHTS,
+            "weights_used": weights,
         },
     )
 

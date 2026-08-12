@@ -16,6 +16,25 @@ from typing import TypedDict
 logger = logging.getLogger(__name__)
 
 
+def _dynamic_weight(prefix: str, type_name: str, default: float | int) -> float | int:
+    """读取动态毒点/爽点权重（quality_center 覆盖，默认配置值）。
+
+    Args:
+        prefix: "toxic" 或 "shuangdian"
+        type_name: 毒点/爽点类型，如 "NTR"、"打脸"
+        default: 默认权重（来自 TOXIC_POINTS / SHUANGDIAN_POINTS 配置）
+    """
+    try:
+        from novelfactory.config.quality_params import quality_center
+
+        val = quality_center.get(f"{prefix}.weights.{type_name}")
+        if val is not None:
+            return val
+    except Exception:
+        pass
+    return default
+
+
 # ========== 模式匹配常量 ==========
 _PATTERN_GROUP_LEN_2 = 2  # 双关键词模式组（keywords1, keywords2）
 _PATTERN_GROUP_LEN_3 = 3  # 三关键词模式组（keywords1, keywords2, exclude_words）
@@ -62,7 +81,7 @@ TOXIC_POINTS = {
         "severity": "high",
     },
     "PROTAGONIST_STUPID": {
-        "weight": 25,
+        "weight": 30,  # v9.0: 原25（主角降智是读者弃书第一主因，提权）
         "description": "主角智商下线，行为愚蠢",
         "patterns": [
             (["明知", "明明知道"], ["还是", "偏要", "还是去", "依然"]),
@@ -72,7 +91,7 @@ TOXIC_POINTS = {
         "severity": "high",
     },
     "NUE_ZHU": {
-        "weight": 25,
+        "weight": 30,  # v9.0: 原25（虐主敏感度高，提权）
         "description": "虐主，长期憋屈压抑",
         "patterns": [
             (["憋屈", "压抑", "受气"], ["整整", "一直", "永远"]),
@@ -110,7 +129,7 @@ TOXIC_POINTS = {
         "severity": "medium",
     },
     "CHARACTER_DEATH": {
-        "weight": 15,
+        "weight": 12,  # v9.0: 原15（悬疑/仙侠题材豁免已覆盖，略降）
         "description": "重要角色死亡（强行赚眼泪）",
         "patterns": [
             (["为了救主角", "为主角挡", "代替主角"], ["死了", "牺牲", "倒下", "离世"]),
@@ -189,7 +208,7 @@ SHUANGDIAN_POINTS = {
         ],
     },
     "逆袭": {
-        "weight": 0.85,
+        "weight": 0.90,  # v9.0: 原0.85（低谷反转是最高频爽点结构，提权）
         "description": "低谷→反转→高潮",
         "patterns": [
             (["绝境", "困境", "低谷"], ["反转", "逆袭", "翻盘"], []),
@@ -205,7 +224,7 @@ SHUANGDIAN_POINTS = {
         ],
     },
     "升级": {
-        "weight": 0.8,
+        "weight": 0.85,  # v9.0: 原0.8（升级流核心，略提）
         "description": "修炼→突破→力量提升",
         "patterns": [
             (["突破", "进阶", "晋升"], ["", ""]),
@@ -221,7 +240,7 @@ SHUANGDIAN_POINTS = {
         ],
     },
     "感情": {
-        "weight": 0.75,
+        "weight": 0.70,  # v9.0: 原0.75（言情题材豁免已覆盖，通用场景略降）
         "description": "误会→解结→关系升华",
         "patterns": [
             (["误会", "误解"], ["解开", "消除", "解除"], []),
@@ -237,7 +256,7 @@ SHUANGDIAN_POINTS = {
         ],
     },
     "悬念": {
-        "weight": 0.7,
+        "weight": 0.75,  # v9.0: 原0.7（章尾钩子影响追读率，提权）
         "description": "章节结尾留钩子",
         "patterns": [
             (["就在这时", "就在此时", "就在此时刻"], ["", ""]),
@@ -327,7 +346,7 @@ def _detect_toxic_points(text: str) -> tuple[list[str], list[dict]]:
             details.append(
                 {
                     "type": toxic_type,
-                    "weight": config["weight"],
+                    "weight": _dynamic_weight("toxic", toxic_type, config["weight"]),
                     "description": config["description"],
                     "severity": config["severity"],
                     "matches": [m[0] for m in matches[:3]],  # 最多记录3个
@@ -357,7 +376,7 @@ def _detect_shuangdian(text: str) -> tuple[list[str], list[dict]]:
             details.append(
                 {
                     "type": shuangdian_type,
-                    "weight": config["weight"],
+                    "weight": _dynamic_weight("shuangdian", shuangdian_type, config["weight"]),
                     "description": config["description"],
                     "pattern_matches": [m[0] for m in matches[:3]],
                     "sub_matches": sub_matches[:3],
