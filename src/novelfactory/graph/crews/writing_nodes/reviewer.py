@@ -71,6 +71,9 @@ async def _chapter_refiner_node(state: BaseCrewState) -> dict[str, Any]:
         lao_fix = _fb("lao_shu_chong_fix", "")
         if lao_fix and lao_fix not in ("老书虫视角评分良好，保持当前方向。", ""):
             sw.write(f"[老书虫] {lao_fix[:200]}...\n")
+        attraction_fix = _fb("attraction_fix", "")
+        if attraction_fix:
+            sw.write(f"[吸引力] {attraction_fix[:200]}...\n")
         toxic = _fb("toxic_points", [])
         if toxic:
             sw.write(f"[毒点] {'、'.join(toxic[:3])}\n")
@@ -80,6 +83,7 @@ async def _chapter_refiner_node(state: BaseCrewState) -> dict[str, Any]:
         **review_result,
         "ai_style_fix": _fb("ai_style_fix", ""),
         "lao_shu_chong_fix": _fb("lao_shu_chong_fix", ""),
+        "attraction_fix": _fb("attraction_fix", ""),
         "guide_references": state.get("guide_references", []),
         "toxic_points": _fb("toxic_points", []),
         "shuangdian_points": _fb("shuangdian_points", []),
@@ -96,6 +100,7 @@ async def _chapter_refiner_node(state: BaseCrewState) -> dict[str, Any]:
         "review_comments",
         "ai_style_fix",
         "lao_shu_chong_fix",
+        "attraction_fix",
         "debate_suggestions",
         "ai_style_metrics_brief",
         "cross_chapter_brief",

@@ -87,12 +87,20 @@ async def verdict_engine_node(state: dict[str, Any]) -> dict[str, Any]:
     # 前文摘要（从 crew_result 获取）
     prev_summary = cr.get("prev_chapters_summary", "") or cr.get("world_setting", "")
 
-    # 次数追踪
+    # 次数追踪（动态参数，quality_center 可覆盖）
+    from novelfactory.config.quality_params import quality_center
+
+    max_rewrite = int(
+        quality_center.get("iteration.max_rewrite") or MAX_REWRITE_ATTEMPTS
+    )
+    max_refine = int(
+        quality_center.get("iteration.max_refine_mid") or _DEFAULT_MAX_REFINE
+    )
     attempt_info = AttemptInfo(
         loop_count=loop_count,
         refine_attempts=refine_attempts,
-        max_rewrite=MAX_REWRITE_ATTEMPTS,
-        max_refine=_DEFAULT_MAX_REFINE,
+        max_rewrite=max_rewrite,
+        max_refine=max_refine,
     )
 
     # 获取 LLM 实例
@@ -177,7 +185,12 @@ async def verdict_engine_node(state: dict[str, Any]) -> dict[str, Any]:
     # v6.1: composite_score → programmatic_score
     state_update["crew_result"] = {
         **cr,
-        "review_result": verdict.model_dump(),
+        "review_result": {
+            **verdict.model_dump(),
+            # v8.1: LLM 吸引力专家团队透出（LLM 成功用真实分，失败=0；fix 失败为空串）
+            "attraction_score": verdict.llm_attraction_score,
+            "attraction_fix": verdict.llm_attraction_fix,
+        },
         "quality_score": verdict.quality_score,
         "programmatic_score": verdict.programmatic_score,
         "ai_style_score": verdict.ai_style_score,

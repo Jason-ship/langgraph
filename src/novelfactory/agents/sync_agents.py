@@ -346,7 +346,8 @@ def create_feishu_sync_agent(llm: BaseChatModel) -> Runnable:
                 or ""
             )
 
-        # Fallback: LLM-generated content
+        # Fallback: LLM-generated content（上传失败或内容为空时降级为摘要通知，
+        # 让用户感知同步状态；若为写作前误触发的空章节，supervisor 路由已修复避免）
         if not feishu_doc_url:
             input_text = (
                 f"请为第{current_ch}章生成飞书文档内容摘要。\n\n"

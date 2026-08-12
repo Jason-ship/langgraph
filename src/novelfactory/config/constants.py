@@ -443,9 +443,24 @@ def get_genre_threshold(genre: str | None, key: str, default: float = 0.0) -> fl
 
 
 def get_genre_thresholds(genre: str | None) -> dict:
-    """获取指定题材的完整阈值字典，未匹配返回 default。"""
+    """获取指定题材的完整阈值字典，未匹配返回 default。
+
+    支持 quality_center 动态覆盖：`genre.<题材>.quality_score` 等键
+    可被 QualityParameterCenter 运行时调整。
+    """
     resolved = resolve_genre(genre)
-    return GENRE_THRESHOLDS.get(resolved, GENRE_THRESHOLDS["default"])
+    base = GENRE_THRESHOLDS.get(resolved, GENRE_THRESHOLDS["default"])
+    try:
+        from novelfactory.config.quality_params import quality_center
+
+        merged = dict(base)
+        for key in base:
+            override = quality_center.get_override(f"genre.{resolved}.{key}")
+            if override is not None:
+                merged[key] = override
+        return merged
+    except Exception:
+        return base
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -577,21 +592,24 @@ REVIEWER_RETRY = RetryPolicy(
 
 # 融合权重
 # v7.1: 新增 llm_old_reader + llm_human_like 两个 LLM 语义分析维度。
-# 减少程序化权重，增加 LLM 语义权重，让评分更灵活、更智能。
+# v8.1: 新增 attraction（LLM 吸引力专家团队）维度，调减 quality/programmatic/cross_chapter。
+# v9.0: 优化底板参数 — 回调 LLM 语义权重（quality/old_reader/human_like），
+#       略降程序化与 attraction，增强"语义级判断 + 用户敏感维度"。
 VERDICT_WEIGHTS: dict[str, float] = {
-    "quality": 0.25,  # v7.1: 四维 LLM 评分权重继续下调
-    "programmatic": 0.30,  # v7.1: 程序化分析权重下调（让位给LLM语义分析）
-    "llm_old_reader": 0.10,  # v7.1: NEW — LLM 老书虫语义评分
-    "llm_human_like": 0.05,  # v7.1: NEW — LLM AI味语义评分
-    "cross_chapter": 0.20,  # 跨章一致性权重
+    "quality": 0.22,  # v9.0: 四维 LLM 评分权重回调（有 Calibration 虚高压低兜底）
+    "programmatic": 0.24,  # v9.0: 程序化分析略降（无幻觉但浅层）
+    "llm_old_reader": 0.12,  # v9.0: LLM 老书虫语义评分提权（语义级毒点/爽点准确）
+    "llm_human_like": 0.08,  # v9.0: LLM AI味语义评分提权（用户最敏感维度）
+    "cross_chapter": 0.14,  # v9.0: 跨章一致性略降
     "debate_penalty": 0.10,  # 辩论惩罚权重（扣分）
+    "attraction": 0.10,  # v9.0: 吸引力专家团队略降（与 quality 部分重叠）
 }
 
 # v7.0: 迭代次数宽松加分 — 重写/润色多次后逐渐放宽评分，防止死循环
 # 让 final_score 随迭代次数逐步提升，而非次数用尽时一刀切强通过
 VERDICT_ITERATION_BONUS_REWRITE = 3.0  # 每次重写加 3 分
 VERDICT_ITERATION_BONUS_REFINE = 2.0  # 每次润色加 2 分
-VERDICT_ITERATION_BONUS_MAX = 10.0  # 封顶 10 分
+VERDICT_ITERATION_BONUS_MAX = 8.0  # v9.0: 封顶 8 分（原10，降低"次品堆分通过"风险）
 
 # v7.3: 长度归一化（Log Length Penalty）
 # 参考 Lost in Stories (微软, 2026) 消除 Verbosity Bias 的思路：
@@ -604,15 +622,16 @@ VERDICT_LENGTH_NORMALIZE = True  # 是否启用长度归一化
 VERDICT_NORMALIZE_BASE = 3000  # 基准字数（中文字符）
 
 # 决策阈值
-VERDICT_PASS_THRESHOLD = 75.0  # 融合分通过线
+VERDICT_PASS_THRESHOLD = 73.0  # v9.0: 融合分通过线（原75，降低重写迭代成本）
 VERDICT_REFINE_THRESHOLD = 55.0  # 融合分润色/重写分界
 
 # 辩论惩罚
 # v7.6-fix: 降低辩论惩罚力度 — 辩论本质是对章节的深入分析，发现问题是正常的
 # 不应过度惩罚。之前 PER_ISSUE=5/CAP=30 导致辩论惩罚占比过高（~30%总分）。
-VERDICT_DEBATE_PENALTY_CAP = 18.0  # 辩论惩罚上限（原30.0 → 18.0）
+# v9.0: 优化底板 — 再收敛 CAP 至 15、PER_SEVERE 至 5，惩罚更温和。
+VERDICT_DEBATE_PENALTY_CAP = 15.0  # 辩论惩罚上限（原30.0 → 18.0 → 15.0）
 VERDICT_DEBATE_PENALTY_PER_ISSUE = 3.0  # 每个问题扣分（原5.0 → 3.0）
-VERDICT_DEBATE_PENALTY_PER_SEVERE = 6.0  # 严重问题额外扣分（原10.0 → 6.0）
+VERDICT_DEBATE_PENALTY_PER_SEVERE = 5.0  # 严重问题额外扣分（原10.0 → 6.0 → 5.0）
 
 # 校准触发条件
 CALIBRATION_LLM_VIRTUAL_HIGH = 90.0  # LLM 虚高阈值

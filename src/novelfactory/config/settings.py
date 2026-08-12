@@ -5,11 +5,13 @@ Supports multiple configuration sources (highest to lowest priority):
   2. .env file
   3. Default values
 
-Tech stack: DeepSeek V4 Flash (via 火山引擎 Coding Plan) — replaced MiniMax 2026-06-14,
-switched to ark.cn-beijing.volces.com 2026-06-15.
+Tech stack: DeepSeek V4 Flash (via DeepSeek 官方 API) — 2026-08-12.
+火山引擎方舟 (ARK) 已停用（v8.2），仅保留字段兼容。
 """
 
 from __future__ import annotations
+
+import logging
 
 from pydantic import Field
 from pydantic_settings import BaseSettings
@@ -61,11 +63,14 @@ class Settings(BaseSettings):
         description="应用版本号，通过 NOVELFACTORY_VERSION 环境变量或 APP_VERSION 覆盖",
     )
 
-    # ── LLM (ARK API — 权威来源) ─────────────────────────────────────────
-    ARK_API_KEY: str = Field(default="", description="火山引擎方舟 API Key")
+    # ── LLM (DeepSeek 官方 API — 权威来源) ─────────────────────────────────
+    DEEPSEEK_API_KEY: str = Field(default="", description="DeepSeek 官方 API Key")
+    ARK_API_KEY: str = Field(
+        default="", description="火山引擎方舟 API Key（v8.2 起停用，仅保留兼容）"
+    )
     ARK_BASE_URL: str = Field(
         default="https://ark.cn-beijing.volces.com/api/coding/v3",
-        description="火山引擎 Coding Plan OpenAI 兼容端点",
+        description="火山引擎 Coding Plan OpenAI 兼容端点（v8.2 起停用）",
     )
 
     # ── Database ───────────────────────────────────────────────────────────────
@@ -357,7 +362,7 @@ class Settings(BaseSettings):
             _logger.info("  %s = %s (%s)", field_name, value, source)
         _logger.info("========================")
 
-    model_config = {
+    model_config = {  # type: ignore[assignment]
         "env_file": ".env",
         "env_file_encoding": "utf-8",
         "case_sensitive": True,

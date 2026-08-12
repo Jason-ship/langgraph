@@ -625,6 +625,16 @@ class VerdictResult(BaseModel):
         le=100.0,
         description="LLM AI味人类相似度 (0-100)，失败时=0",
     )
+    llm_attraction_score: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=100.0,
+        description="LLM 吸引力专家团队评分 (0-100)，失败时=0",
+    )
+    llm_attraction_fix: str = Field(
+        default="",
+        description="LLM 吸引力专家团队修改建议（LLMAttractionResult.fix），失败时为空串",
+    )
     llm_severe_toxic_detected: bool = Field(
         default=False,
         description="LLM 检测到严重毒点",
@@ -670,6 +680,8 @@ class VerdictResult(BaseModel):
             # v7.1: LLM 语义分析追踪
             "llm_semantic_score": self.llm_semantic_score,
             "llm_human_like_score": self.llm_human_like_score,
+            "llm_attraction_score": self.llm_attraction_score,
+            "llm_attraction_fix": self.llm_attraction_fix,
             "llm_severe_toxic_detected": self.llm_severe_toxic_detected,
             "llm_implicit_toxic_found": self.llm_implicit_toxic_found,
             "llm_analysis_failed": self.llm_analysis_failed,

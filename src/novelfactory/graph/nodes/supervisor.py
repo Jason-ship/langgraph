@@ -55,7 +55,17 @@ def main_supervisor_node(state: NovelFactoryState) -> dict:
                     updates["current_phase"] = "sync"
                 updates["target_chapters"] = target
             else:
-                updates["current_phase"] = "sync"
+                # 章节尚未开始/未完成：先判断是否已有写作完成的章节。
+                # - current_chapter >= 1：至少完成了一章 → 先 sync 同步章节内容，
+                #   再回 writing 继续下一章（或 done）。sync 时章节有真实内容，
+                #   飞书同步正常、失败时照常通知。
+                # - current_chapter == 0：setup 后首次进入、尚未开始写作 →
+                #   保持 writing 直接准备写作（refresh_quota → prepare_writing），
+                #   切勿在此切入 sync——否则会读到空章节并误报"同步中断"。
+                if state.get("current_chapter", 1) >= 1:
+                    updates["current_phase"] = "sync"
+                else:
+                    updates["current_phase"] = "writing"
 
     elif phase == "media":
         if state.get("media_complete"):

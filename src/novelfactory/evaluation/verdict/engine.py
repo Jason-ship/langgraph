@@ -10,6 +10,15 @@
                 + cross_chapter_consistency × W_CROSS_CHAPTER
                 - debate_penalty × W_DEBATE_PENALTY
 
+融合公式 v8.1（新增 LLM 吸引力专家团队维度）：
+    final_score = quality_score × W_QUALITY
+                + programmatic_normalized × W_PROGRAMMATIC
+                + llm_old_reader_score × W_LLM_OLD_READER
+                + llm_human_like_score × W_LLM_HUMAN_LIKE
+                + cross_chapter_consistency × W_CROSS_CHAPTER
+                - debate_penalty × W_DEBATE_PENALTY
+                + llm_attraction_score × W_ATTRACTION              ← NEW
+
 设计参考：
     - WebNovelBench (ACL 2025)：LLM-as-Judge 的 8-dimension 叙事质量评估
     - WritingBench (NeurIPS 2025)：criteria-aware scoring 模式
@@ -42,6 +51,7 @@ from novelfactory.config.constants import (
 )
 from novelfactory.evaluation.debate.engine import InformedDebateEngine
 from novelfactory.evaluation.llm.ai_style_llm import llm_ai_style_analysis
+from novelfactory.evaluation.llm.attraction_llm import attraction_llm_analysis
 from novelfactory.evaluation.llm.old_reader_llm import llm_old_reader_analysis
 from novelfactory.evaluation.programmatic.runner import run_programmatic_analysis
 from novelfactory.evaluation.schemas import (
@@ -64,9 +74,45 @@ from novelfactory.evaluation.verdict.feedback import FeedbackBuilder
 from novelfactory.schemas.review_schemas import FourDimScores
 
 if TYPE_CHECKING:
-    from novelfactory.evaluation.llm.schemas import LLMAIStyleResult, LLMOldReaderResult
+    from novelfactory.evaluation.llm.schemas import (
+        LLMAIStyleResult,
+        LLMAttractionResult,
+        LLMOldReaderResult,
+    )
 
 logger = get_logger(__name__)
+
+
+def _get_quality_param(key: str, default: float | bool | int) -> float | bool | int:
+    """读取动态质量参数（quality_center 覆盖，默认 constants 值）。
+
+    质量参数中心 (QualityParameterCenter) 支持运行时动态调整，
+    通过飞书反馈 / 对话 Agent / API 实时修改。
+    """
+    try:
+        from novelfactory.config.quality_params import quality_center
+
+        val = quality_center.get(key)
+        if val is not None:
+            return val
+    except Exception:
+        pass
+    return default
+
+
+def _dynamic_weights() -> dict[str, float]:
+    """读取动态融合权重（quality_center 覆盖，默认 VERDICT_WEIGHTS）。"""
+    weights = dict(VERDICT_WEIGHTS)
+    try:
+        from novelfactory.config.quality_params import quality_center
+
+        for short_key in list(weights):
+            val = quality_center.get(f"verdict.weights.{short_key}")
+            if val is not None:
+                weights[short_key] = float(val)
+    except Exception:
+        pass
+    return weights
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  四维评分上下文裁剪（私有常量）
@@ -82,10 +128,10 @@ _QUALITY_SCORE_MAX = 100.0
 # ═══════════════════════════════════════════════════════════════════════════════
 #  质量衰减检测（v7.2 基于 Fiction_Eval "高开低走"模式）
 # ═══════════════════════════════════════════════════════════════════════════════
-_DECAY_HEAD_RATIO = 0.35  # 前段比例
-_DECAY_TAIL_RATIO = 0.35  # 后段比例
+_DECAY_HEAD_RATIO = 0.30  # v9.0: 前段比例（原0.35，更聚焦真正开头）
+_DECAY_TAIL_RATIO = 0.30  # v9.0: 后段比例（原0.35）
 _DECAY_PENALTY_PER_POINT = 0.5  # 每1分衰减扣分系数
-_DECAY_MAX_PENALTY = 10.0  # 衰减惩罚上限
+_DECAY_MAX_PENALTY = 8.0  # v9.0: 衰减惩罚上限（原10，与迭代加分平衡）
 
 
 def _detect_quality_decay(chapter_text: str) -> float:
@@ -104,9 +150,23 @@ def _detect_quality_decay(chapter_text: str) -> float:
     if not chapter_text or len(chapter_text) < 500:
         return 0.0
 
+    # 动态衰减参数（quality_center 可覆盖）
+    decay_head_ratio = float(
+        _get_quality_param("verdict.decay.head_ratio", _DECAY_HEAD_RATIO)
+    )
+    decay_tail_ratio = float(
+        _get_quality_param("verdict.decay.tail_ratio", _DECAY_TAIL_RATIO)
+    )
+    decay_penalty_per_point = float(
+        _get_quality_param("verdict.decay.penalty_per_point", _DECAY_PENALTY_PER_POINT)
+    )
+    decay_max_penalty = float(
+        _get_quality_param("verdict.decay.max_penalty", _DECAY_MAX_PENALTY)
+    )
+
     n = len(chapter_text)
-    head_end = int(n * _DECAY_HEAD_RATIO)
-    tail_start = int(n * (1.0 - _DECAY_TAIL_RATIO))
+    head_end = int(n * decay_head_ratio)
+    tail_start = int(n * (1.0 - decay_tail_ratio))
 
     head_text = chapter_text[:head_end]
     tail_text = chapter_text[tail_start:]
@@ -133,7 +193,7 @@ def _detect_quality_decay(chapter_text: str) -> float:
 
         combined_decay = decay * 0.6 + diversity_decay * 0.4
         penalty = min(
-            _DECAY_MAX_PENALTY, combined_decay * _DECAY_PENALTY_PER_POINT * 10
+            decay_max_penalty, combined_decay * decay_penalty_per_point * 10
         )
 
         if penalty > 1.0:
@@ -179,6 +239,15 @@ class VerdictEngine:
                     + cross_chapter_consistency × W_CROSS_CHAPTER
                     - debate_penalty × W_DEBATE_PENALTY
 
+    融合公式 v8.1（新增 LLM 吸引力专家团队维度）：
+        final_score = quality_score × W_QUALITY
+                    + programmatic_normalized × W_PROGRAMMATIC
+                    + llm_old_reader_score × W_LLM_OLD_READER
+                    + llm_human_like_score × W_LLM_HUMAN_LIKE
+                    + cross_chapter_consistency × W_CROSS_CHAPTER
+                    - debate_penalty × W_DEBATE_PENALTY
+                    + llm_attraction_score × W_ATTRACTION        ← LLM吸引力专家团队
+
     决策规则（3 级，替代 12 分支）：
         1. LLM严重毒点 + 未用尽重写 → REWRITE
         2. 程序化严重毒点 + 未用尽重写 → REWRITE
@@ -208,6 +277,9 @@ class VerdictEngine:
 
         v7.1：新增 LLM 语义分析步骤（老书虫 + AI味），
         与程序化分析并行互补。
+
+        v8.1：新增 LLM 吸引力专家团队评审步骤（三位专家并行），
+        与老书虫 / AI味维度同构、并行互补。
 
         v7.8: 全 async — LLM 调用不再阻塞事件循环。
 
@@ -244,17 +316,18 @@ class VerdictEngine:
         # v7.2: 质量衰减检测（同步，Fiction_Eval"高开低走"模式）
         decay_penalty = _detect_quality_decay(chapter_text)
 
-        # 2-5. 并行执行四个无数据依赖的评审维度（v7.9: asyncio.gather 并行化）
-        # 步骤 1（程序化分析）已完成后，以下四个维度之间无数据依赖：
+        # 2-5. 并行执行五个无数据依赖的评审维度（v7.9: asyncio.gather 并行化）
+        # 步骤 1（程序化分析）已完成后，以下五个维度之间无数据依赖：
         #   - LLM 老书虫语义分析（独立，无依赖）
         #   - LLM AI味语义分析（依赖步骤 1 的 programmatic.ai_style_metrics）
+        #   - LLM 吸引力专家团队分析（独立，无依赖；v8.1 新增）
         #   - 知情辩论（依赖步骤 1 的 programmatic + cross_chapter）
         #   - 四维 LLM 评分（依赖步骤 1 的 cross_chapter）
         # 各维度内部已有 try/except 降级保护，单维度失败不阻塞整体
         # v7.2: 多模型分层支持 - 不同 LLM 执行不同维度的分析
         # 参考 Fiction_Eval 实证：Claude 擅长宏观, DeepSeek 擅长中观, GPT-4o 擅长微观
         # v7.8: async - 所有 LLM 调用均为 async
-        llm_or, llm_ais, debate, four_dim = await asyncio.gather(
+        llm_or, llm_ais, llm_attraction, debate, four_dim = await asyncio.gather(
             llm_old_reader_analysis(
                 chapter_text=chapter_text,
                 genre=genre,
@@ -265,6 +338,13 @@ class VerdictEngine:
                 chapter_text=chapter_text,
                 genre=genre,
                 programmatic_metrics=programmatic.ai_style_metrics.to_brief_string(),
+                llm=reviewer_llm,
+            ),
+            # v8.1: LLM 吸引力专家团队评审（三位专家并行，内部有降级保护）
+            attraction_llm_analysis(
+                chapter_text=chapter_text,
+                genre=genre,
+                prev_summary=prev_summary,
                 llm=reviewer_llm,
             ),
             self._run_debate(
@@ -294,6 +374,7 @@ class VerdictEngine:
             attempt_info,
             llm_old_reader=llm_or,
             llm_ai_style=llm_ais,
+            llm_attraction=llm_attraction,
             decay_penalty=decay_penalty,
             chapter_length=len(chapter_text),
         )
@@ -301,7 +382,7 @@ class VerdictEngine:
         logger.info(
             "[VerdictEngine] ch%d 评审完成 | level=%s final=%.1f "
             "quality=%.1f prog=%.3f llm_or=%.0f llm_ais=%.0f "
-            "cross=%.1f debate_penalty=%.1f decay=%.1f",
+            "llm_att=%.0f cross=%.1f debate_penalty=%.1f decay=%.1f",
             chapter_index,
             verdict.level.value,
             verdict.final_score,
@@ -309,6 +390,7 @@ class VerdictEngine:
             verdict.programmatic_score,
             llm_or.semantic_score if not llm_or.failed else 0,
             llm_ais.human_like_score if not llm_ais.failed else 0,
+            llm_attraction.attraction_score if not llm_attraction.failed else 0,
             verdict.cross_chapter_consistency,
             verdict.debate_penalty,
             decay_penalty,
@@ -551,12 +633,16 @@ class VerdictEngine:
         self,
         llm_old_reader: LLMOldReaderResult | None,
         llm_ai_style: LLMAIStyleResult | None,
+        llm_attraction: LLMAttractionResult | None,
         programmatic: ProgrammaticReport,
-    ) -> tuple[float, bool, float, bool]:
+    ) -> tuple[float, bool, float, bool, float, bool]:
         """解析 LLM 语义评分，失败时降级为程序化评分。
 
+        v8.1: 新增 LLM 吸引力专家团队评分解析。
+
         Returns:
-            (llm_old_reader_score, llm_or_valid, llm_human_like_score, llm_ais_valid)
+            (llm_old_reader_score, llm_or_valid, llm_human_like_score, llm_ais_valid,
+             llm_attraction_score, llm_att_valid)
         """
         # LLM 老书虫语义评分（失败时降级为程序化评分）
         if llm_old_reader is not None and not llm_old_reader.failed:
@@ -573,7 +659,26 @@ class VerdictEngine:
         )
         llm_ais_valid = llm_ai_style is not None and not llm_ai_style.failed
 
-        return llm_old_reader_score, llm_or_valid, llm_human_like_score, llm_ais_valid
+        # LLM 吸引力专家团队评分（失败时降级为程序化融合分）
+        # 选 programmatic.programmatic_score*100 而非中性 50.0 的原因：
+        #   - 与 llm_old_reader / llm_human_like 的降级模式一致（均用程序化数据兜底）；
+        #   - programmatic_score=(老书虫/100)*(1-AI味) 已融合阅读体验与 AI 味，
+        #     与"吸引力"语义最接近，且失败时该维度退化为程序化信号而非恒定噪声；
+        #   - 中性 50.0 不携带章节信息，会让 LLM 失败时吸引力维度失真。
+        if llm_attraction is not None and not llm_attraction.failed:
+            llm_attraction_score = llm_attraction.attraction_score
+        else:
+            llm_attraction_score = programmatic.programmatic_score * 100.0
+        llm_att_valid = llm_attraction is not None and not llm_attraction.failed
+
+        return (
+            llm_old_reader_score,
+            llm_or_valid,
+            llm_human_like_score,
+            llm_ais_valid,
+            llm_attraction_score,
+            llm_att_valid,
+        )
 
     def _analyze_toxic_state(
         self,
@@ -609,8 +714,9 @@ class VerdictEngine:
             and not llm_severe_toxic
         )
 
-        w_prog = VERDICT_WEIGHTS["programmatic"]
-        w_llm_or = VERDICT_WEIGHTS.get("llm_old_reader", 0.10)
+        weights = _dynamic_weights()
+        w_prog = weights["programmatic"]
+        w_llm_or = weights.get("llm_old_reader", 0.10)
         if prog_toxic_overridden and programmatic_normalized < 20.0:
             # 程序化评分极低但被 LLM 否认 → 转移权重给 LLM 老书虫
             transfer = w_prog * 0.5  # 转移 50% 的程序化权重
@@ -618,8 +724,8 @@ class VerdictEngine:
             w_llm_or += transfer
             logger.info(
                 "[VerdictEngine] 毒点矛盾权重调整: prog=%.3f→%.3f llm_or=%.3f→%.3f",
-                VERDICT_WEIGHTS["programmatic"], w_prog,
-                VERDICT_WEIGHTS.get("llm_old_reader", 0.10), w_llm_or,
+                weights["programmatic"], w_prog,
+                weights.get("llm_old_reader", 0.10), w_llm_or,
             )
 
         return _ToxicState(
@@ -636,6 +742,7 @@ class VerdictEngine:
         programmatic_normalized: float,
         llm_old_reader_score: float,
         llm_human_like_score: float,
+        llm_attraction_score: float,
         cross_consistency: float,
         debate_penalty: float,
         decay_penalty: float,
@@ -644,22 +751,27 @@ class VerdictEngine:
     ) -> float:
         """计算加权融合分数。
 
-        读取非调整权重（quality/llm_human_like/cross_chapter/debate_penalty）
-        from VERDICT_WEIGHTS，使用经毒点分析调整后的 w_prog 和 w_llm_or。
+        读取非调整权重（quality/llm_human_like/cross_chapter/debate_penalty/
+        attraction）from VERDICT_WEIGHTS，使用经毒点分析调整后的 w_prog 和 w_llm_or。
+
+        v8.1: 新增 attraction 权重（LLM 吸引力专家团队），不参与毒点调整。
 
         Returns:
             原始加权融合分数（未经校准/加分/归一化）。
         """
-        w_quality = VERDICT_WEIGHTS["quality"]
-        w_llm_ais = VERDICT_WEIGHTS.get("llm_human_like", 0.05)
-        w_cross = VERDICT_WEIGHTS["cross_chapter"]
-        w_debate = VERDICT_WEIGHTS["debate_penalty"]
+        weights = _dynamic_weights()
+        w_quality = weights["quality"]
+        w_llm_ais = weights.get("llm_human_like", 0.05)
+        w_attraction = weights.get("attraction", 0.15)
+        w_cross = weights["cross_chapter"]
+        w_debate = weights["debate_penalty"]
 
         return (
             quality_score * w_quality
             + programmatic_normalized * w_prog
             + llm_old_reader_score * w_llm_or
             + llm_human_like_score * w_llm_ais
+            + llm_attraction_score * w_attraction
             + cross_consistency * w_cross
             - debate_penalty * w_debate
             - decay_penalty  # v7.2: 质量衰减惩罚（Fiction_Eval"高开低走"）
@@ -682,21 +794,28 @@ class VerdictEngine:
             (adjusted_score, iteration_bonus, length_factor)
         """
         # v7.0: 迭代宽松加分
+        bonus_rewrite = float(_get_quality_param("verdict.iteration_bonus.rewrite", VERDICT_ITERATION_BONUS_REWRITE))
+        bonus_refine = float(_get_quality_param("verdict.iteration_bonus.refine", VERDICT_ITERATION_BONUS_REFINE))
+        bonus_max = float(_get_quality_param("verdict.iteration_bonus.max", VERDICT_ITERATION_BONUS_MAX))
+
         iteration_bonus = 0.0
         if attempt_info.loop_count > 0 or attempt_info.refine_attempts > 0:
             bonus = (
-                attempt_info.loop_count * VERDICT_ITERATION_BONUS_REWRITE
-                + attempt_info.refine_attempts * VERDICT_ITERATION_BONUS_REFINE
+                attempt_info.loop_count * bonus_rewrite
+                + attempt_info.refine_attempts * bonus_refine
             )
-            iteration_bonus = min(bonus, VERDICT_ITERATION_BONUS_MAX)
+            iteration_bonus = min(bonus, bonus_max)
         final_score += iteration_bonus
 
         # v7.3: 长度归一化 — 消除 Verbosity Bias
+        length_normalize = bool(_get_quality_param("verdict.length_normalize", VERDICT_LENGTH_NORMALIZE))
+        normalize_base = int(_get_quality_param("verdict.normalize_base", VERDICT_NORMALIZE_BASE))
+
         if (
-            VERDICT_LENGTH_NORMALIZE
-            and chapter_length > VERDICT_NORMALIZE_BASE
+            length_normalize
+            and chapter_length > normalize_base
         ):
-            length_factor = math.log2(chapter_length / VERDICT_NORMALIZE_BASE + 1)
+            length_factor = math.log2(chapter_length / normalize_base + 1)
             final_score = final_score / length_factor
         else:
             length_factor = 1.0
@@ -717,6 +836,9 @@ class VerdictEngine:
         llm_or_valid: bool,
         llm_human_like_score: float,
         llm_ais_valid: bool,
+        llm_attraction_score: float,
+        llm_att_valid: bool,
+        llm_attraction: LLMAttractionResult | None,
         llm_severe_toxic: bool,
         llm_old_reader: LLMOldReaderResult | None,
         llm_ai_style: LLMAIStyleResult | None,
@@ -726,7 +848,10 @@ class VerdictEngine:
         attempt_info: AttemptInfo,
         combined_severe_toxic: bool,
     ) -> VerdictResult:
-        """组装最终 VerdictResult，汇总所有评审维度的输出。"""
+        """组装最终 VerdictResult，汇总所有评审维度的输出。
+
+        v8.1: 新增 LLM 吸引力专家团队评分与修改建议透出。
+        """
         return VerdictResult(
             level=level,
             passed=level == VerdictLevel.PASS,
@@ -741,6 +866,11 @@ class VerdictEngine:
             # v7.1: LLM 语义分析追踪
             llm_semantic_score=llm_old_reader_score if llm_or_valid else 0.0,
             llm_human_like_score=llm_human_like_score if llm_ais_valid else 0.0,
+            # v8.1: LLM 吸引力专家团队追踪（失败时=0，与 llm_semantic_score 模式一致）
+            llm_attraction_score=llm_attraction_score if llm_att_valid else 0.0,
+            llm_attraction_fix=(
+                llm_attraction.fix if llm_att_valid else ""  # type: ignore[union-attr]
+            ),
             llm_severe_toxic_detected=llm_severe_toxic,
             llm_implicit_toxic_found=(
                 llm_old_reader.implicit_toxic_found if llm_or_valid else False  # type: ignore[union-attr]
@@ -748,6 +878,7 @@ class VerdictEngine:
             llm_analysis_failed=(
                 (llm_old_reader is not None and llm_old_reader.failed)
                 or (llm_ai_style is not None and llm_ai_style.failed)
+                or (llm_attraction is not None and llm_attraction.failed)
             ),
             feedback=feedback,
             is_short_text=programmatic.is_short_text,
@@ -766,6 +897,7 @@ class VerdictEngine:
         attempt_info: AttemptInfo,
         llm_old_reader: LLMOldReaderResult | None = None,
         llm_ai_style: LLMAIStyleResult | None = None,
+        llm_attraction: LLMAttractionResult | None = None,
         decay_penalty: float = 0.0,
         chapter_length: int = 0,
     ) -> VerdictResult:
@@ -773,6 +905,7 @@ class VerdictEngine:
 
         v7.3: 新增 CED 字数归一化，消除 Verbosity Bias。
         参考 Lost in Stories (微软, 2026) + Reference-Guided Verdict (2024)。
+        v8.1: 新增 LLM 吸引力专家团队维度接入融合计算。
         """
 
         # --- 评分融合 ---
@@ -783,8 +916,15 @@ class VerdictEngine:
         )  # 0-100
 
         # 1. 解析 LLM 语义评分（失败时降级为程序化评分）
-        llm_old_reader_score, llm_or_valid, llm_human_like_score, llm_ais_valid = (
-            self._resolve_llm_scores(llm_old_reader, llm_ai_style, programmatic)
+        (
+            llm_old_reader_score,
+            llm_or_valid,
+            llm_human_like_score,
+            llm_ais_valid,
+            llm_attraction_score,
+            llm_att_valid,
+        ) = self._resolve_llm_scores(
+            llm_old_reader, llm_ai_style, llm_attraction, programmatic
         )
 
         cross_consistency = four_dim.cross_chapter_consistency
@@ -802,6 +942,7 @@ class VerdictEngine:
             programmatic_normalized,
             llm_old_reader_score,
             llm_human_like_score,
+            llm_attraction_score,
             cross_consistency,
             debate_penalty,
             decay_penalty,
@@ -883,6 +1024,9 @@ class VerdictEngine:
             llm_or_valid=llm_or_valid,
             llm_human_like_score=llm_human_like_score,
             llm_ais_valid=llm_ais_valid,
+            llm_attraction_score=llm_attraction_score,
+            llm_att_valid=llm_att_valid,
+            llm_attraction=llm_attraction,
             llm_severe_toxic=toxic_state.llm_severe_toxic,
             llm_old_reader=llm_old_reader,
             llm_ai_style=llm_ai_style,
@@ -921,6 +1065,14 @@ class VerdictEngine:
         8. final_score >= REFINE_THRESHOLD → REFINE
         9. final_score < REFINE_THRESHOLD → REWRITE
         """
+        # 动态阈值（quality_center 可覆盖）
+        pass_threshold = float(
+            _get_quality_param("verdict.pass_threshold", VERDICT_PASS_THRESHOLD)
+        )
+        refine_threshold = float(
+            _get_quality_param("verdict.refine_threshold", VERDICT_REFINE_THRESHOLD)
+        )
+
         # ── 兜底：双向用尽强制通过 ──
         both_exhausted = attempt_info.rewrite_exhausted and attempt_info.refine_exhausted
         if both_exhausted:
@@ -980,7 +1132,7 @@ class VerdictEngine:
                 final_score,
             )
             return VerdictLevel.REFINE
-        if refine_spent and final_score < VERDICT_PASS_THRESHOLD:
+        if refine_spent and final_score < pass_threshold:
             # refine 用尽但 rewrite 还有 → 尝试 REWRITE
             logger.info(
                 "[VerdictEngine] refine用尽，降级REWRITE final=%.1f",
@@ -992,9 +1144,9 @@ class VerdictEngine:
             return VerdictLevel.PASS
 
         # ── 正常分数路由 ──
-        if final_score >= VERDICT_PASS_THRESHOLD:
+        if final_score >= pass_threshold:
             return VerdictLevel.PASS
-        if final_score >= VERDICT_REFINE_THRESHOLD:
+        if final_score >= refine_threshold:
             return VerdictLevel.REFINE
         return VerdictLevel.REWRITE
 

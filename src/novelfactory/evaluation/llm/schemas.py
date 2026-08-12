@@ -200,3 +200,64 @@ class LLMAIStyleResult(BaseModel):
         description="LLM 分析是否失败（降级标记）",
     )
     failure_reason: str = Field(default="", description="失败原因")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  LLM 吸引力专家团队评审
+#  三位 LLM 专家（番茄爆款编辑 / 代入感专家 / 反AI味审计师）并行独立评审章节吸引力
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class LLMAttractionResult(BaseModel):
+    """LLM 吸引力专家团队评审结果。
+
+    三位专家并行独立评审，综合分加权：
+        attraction_score = 0.4 × 节奏与爽点 + 0.3 × 代入感 + 0.3 × 文风
+    单专家失败时子分按 50.0 兜底参与加权（与降级语义一致）；
+    三专家全部失败时整体 failed=True。
+    """
+
+    # === 综合评分 ===
+    attraction_score: float = Field(
+        default=50.0,
+        ge=0.0,
+        le=100.0,
+        description="吸引力综合评分 (0-100)",
+    )
+
+    # === 三专家子分 ===
+    fanqie_editor_score: float = Field(
+        default=50.0,
+        ge=0.0,
+        le=100.0,
+        description="番茄爆款编辑评分 (0-100)：节奏与爽点 / 开篇 / 钩子",
+    )
+    immersion_score: float = Field(
+        default=50.0,
+        ge=0.0,
+        le=100.0,
+        description="代入感专家评分 (0-100)：视角 / 情绪呈现 / 细节 / 共鸣",
+    )
+    ai_style_score: float = Field(
+        default=50.0,
+        ge=0.0,
+        le=100.0,
+        description="反AI味审计师评分 (0-100)：套语 / 句式 / 情绪总结 / 对话",
+    )
+
+    # === 问题清单与修改建议 ===
+    issues: list[str] = Field(
+        default_factory=list,
+        description="问题清单（三专家合并的非空问题，含降级记录）",
+    )
+    fix: str = Field(
+        default="",
+        description="合并的具体修改建议（「吸引力专家建议：」前缀 + 按专家分行）",
+    )
+
+    # === 元信息 ===
+    failed: bool = Field(
+        default=False,
+        description="整体是否失败（LLM 未配置 / 文本过短 / 三专家全部失败）",
+    )
+    failure_reason: str = Field(default="", description="失败原因")

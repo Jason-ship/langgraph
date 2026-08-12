@@ -110,6 +110,7 @@ debug-full-chain-test-debug.md
 resume.json
 resume_input.json
 scripts/
+.novelfactory/
 
 # OS files
 .DS_Store
