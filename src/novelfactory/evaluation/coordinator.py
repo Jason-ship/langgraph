@@ -71,7 +71,10 @@ async def _try_quick_recheck(
     """
     if loop_count <= 0 and refine_attempts <= 0:
         return None
-    if str(prev_verdict.get("level", "")).upper() not in ("REFINE", "REWRITE"):
+    # v8.3-fix: state 中 level 可能是 VerdictLevel 枚举对象（model_dump 保留枚举）
+    # 或字符串；统一取 .value 后大写比较，避免 str(枚举)="VerdictLevel.REFINE" 判定失败
+    _level = prev_verdict.get("level")
+    if str(getattr(_level, "value", _level)).upper() not in ("REFINE", "REWRITE"):
         return None
     issues = _build_recheck_issues(prev_verdict)
     if not issues:

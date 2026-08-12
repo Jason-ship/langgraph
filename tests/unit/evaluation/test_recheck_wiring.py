@@ -12,6 +12,12 @@ import asyncio
 import pytest
 
 from novelfactory.evaluation.coordinator import _build_recheck_issues, _try_quick_recheck
+from novelfactory.evaluation.schemas import (
+    AttemptInfo,
+    FeedbackBundle,
+    VerdictLevel,
+    VerdictResult,
+)
 
 RECHECK_OK = """<review_analysis>P8 战力铺垫已补，问题清除。</review_analysis>
 [复查] passed=true
@@ -108,3 +114,47 @@ class TestTryQuickRecheck:
             _try_quick_recheck("正文", 1, 0, {"level": "REFINE", "feedback": {}}, _FakeLlm(RECHECK_OK))
         )
         assert r is None
+
+
+def _real_prev_verdict() -> dict:
+    """构造与真实 state 一致的 verdict_result（VerdictResult.model_dump）。"""
+    return VerdictResult(
+        level=VerdictLevel.REFINE,
+        passed=False,
+        final_score=72.0,
+        quality_score=74.0,
+        programmatic_score=0.0,
+        cross_chapter_consistency=85.0,
+        debate_penalty=0.0,
+        ai_style_score=0.10,
+        lao_shu_chong_score=72.0,
+        feedback=FeedbackBundle(
+            score_summary="统一评审：72/100",
+            review_comments="需润色",
+            toxic_points=["POWER_BREAK"],
+            shuangdian_points=[],
+            debate_issues=["战力突兀"],
+            debate_strengths=[],
+            debate_suggestions="P8 补铺垫",
+        ),
+        attempt_info=AttemptInfo(loop_count=0, refine_attempts=1, max_rewrite=5, max_refine=2),
+        has_severe_toxic=False,
+    ).model_dump()
+
+
+class TestRealModelDumpStructure:
+    """回归防护：真实 state 中 level 是 VerdictLevel 枚举对象（model_dump 保留枚举）。"""
+
+    def test_issues_extracted_from_real_structure(self):
+        issues = _build_recheck_issues(_real_prev_verdict())
+        assert "POWER_BREAK" in issues
+        assert "战力突兀" in issues
+        assert "P8 补铺垫" in issues
+
+    def test_level_enum_accepts_refine(self):
+        r = asyncio.run(
+            _try_quick_recheck("正文", 0, 1, _real_prev_verdict(), _FakeLlm(RECHECK_OK))
+        )
+        assert r is not None
+        assert r.failed is False
+        assert r.final_score == 80.0
