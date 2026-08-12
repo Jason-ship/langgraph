@@ -45,6 +45,12 @@ _EXEMPT_PATHS = frozenset({
     "/interrupts",
     "/files",
     "/scheduled-tasks",
+    "/store",
+    # 飞书 Webhook 与内部管理端点（自有 Token/签名验证，或本地管理接口，CSRF 不适用）
+    "/feishu/callback",
+    "/feishu/resume/",
+    "/feishu/quality-params",
+    "/feishu/quality-feedback",
 })
 
 
