@@ -375,6 +375,12 @@ class VerdictEngine:
             debate_penalty=0.0,  # 辩论惩罚由统一评审自洽校验承接
             ai_style_score=ur.human_like_score,
             lao_shu_chong_score=ur.final_score,
+            # v8.2: LLM 追踪字段透出统一评审分（下游 replay/dashboard 兼容且保留语义）
+            llm_semantic_score=ur.final_score,
+            llm_human_like_score=round(ur.human_like_score * 100.0, 1),
+            llm_attraction_score=ur.attraction_score,
+            llm_severe_toxic_detected=ur.severe_toxic,
+            llm_analysis_failed=ur.failed,
             feedback=feedback,
             attempt_info=attempt_info,
             has_severe_toxic=ur.severe_toxic,

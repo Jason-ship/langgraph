@@ -88,9 +88,9 @@ def _exit_for_chapter(state: dict) -> dict:
     sw = get_crew_stream("writing", prefix)
     if sw:
         sw.section(f"第{current_ch}章 - 完成")
-        # v6.1: 从 verdict_result 读取 programmatic_score
+        # v8.2: 从 verdict_result 读取 final_score（程序化分已移除，字段保留兼容恒 0）
         verdict = state.get("verdict_result", {})
-        stream_composite = verdict.get("programmatic_score", 0.0) or state.get(
+        stream_composite = (verdict.get("final_score", 0.0) or 0.0) / 100.0 or state.get(
             "composite_score", 0.0
         )
         sw.write(
@@ -103,11 +103,12 @@ def _exit_for_chapter(state: dict) -> dict:
         # Close via module cache
         cleanup_crew_stream("writing", prefix)
 
-    # v6.1: 从 verdict_result 读取 programmatic_score（权威来源）
+    # v8.2: 从 verdict_result 读取 final_score（权威来源；programmatic_score 字段保留兼容恒 0）
     # 兜底读取旧字段 composite_score 保证向前兼容
     verdict = state.get("verdict_result", {})
     composite = float(
-        verdict.get("programmatic_score", 0.0) or state.get("composite_score", 0.0)
+        (verdict.get("final_score", 0.0) or 0.0) / 100.0
+        or state.get("composite_score", 0.0)
     )
     # ── 用 LLM 生成有意义的章节摘要 + 嵌入结尾原文（供下一章衔接用） ──
     # v7.5-fix: chapter_summary 包含结构化信息：

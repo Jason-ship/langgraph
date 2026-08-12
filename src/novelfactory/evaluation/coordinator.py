@@ -163,10 +163,7 @@ async def verdict_engine_node(state: dict[str, Any]) -> dict[str, Any]:
 
         sw.write(
             f"[verdict_engine] 第{current_ch}章评审：{verdict.final_score:.1f}/100 → {level_text}{force_pass}\n"
-            f"  四维={verdict.quality_score:.0f} | AI味={verdict.ai_style_score:.2f} | "
-            f"老书虫={verdict.lao_shu_chong_score:.0f} | "
-            f"跨章={verdict.cross_chapter_consistency:.0f} | "
-            f"辩论惩罚={verdict.debate_penalty:.0f}\n"
+            f"  {verdict.feedback.score_summary}\n"
         )
 
         if verdict.calibration_reason:
@@ -177,7 +174,7 @@ async def verdict_engine_node(state: dict[str, Any]) -> dict[str, Any]:
         if verdict.feedback.shuangdian_points:
             sw.write(f"  [爽点] {', '.join(verdict.feedback.shuangdian_points)}\n")
         if verdict.feedback.debate_issues:
-            sw.write(f"  [辩论问题] {len(verdict.feedback.debate_issues)}个\n")
+            sw.write(f"  [分歧] {len(verdict.feedback.debate_issues)}处\n")
 
     # 构建状态更新
     state_update = verdict.to_state_dict()
@@ -210,11 +207,14 @@ async def verdict_engine_node(state: dict[str, Any]) -> dict[str, Any]:
         }
     elif verdict.level == VerdictLevel.REFINE:
         state_update["loop_count"] = loop_count
-        # Defensive: explicitly pass through refine_attempts so VerdictEngine
-        # in the next cycle sees the correct count.  chapter_refiner_node
-        # is the authoritative increment site, but if it hasn't run yet
-        # (first REFINE pass) this preserves the current value.
-        state_update["refine_attempts"] = refine_attempts
+        # v8.1-fix: REFINE 计数由 coordinator 统一递增（与 REWRITE 分支对称），
+        # 并备份到 crew_result._refine_count。此前仅透传 refine_attempts，
+        # refiner 的递增在子图状态传播中丢失，导致 refine=1/2 恒定、无限精修循环。
+        state_update["refine_attempts"] = refine_attempts + 1
+        state_update["crew_result"] = {
+            **state_update.get("crew_result", {}),
+            "_refine_count": refine_attempts + 1,
+        }
     else:  # PASS
         state_update["loop_count"] = loop_count
 

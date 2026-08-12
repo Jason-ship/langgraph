@@ -445,14 +445,14 @@ def _process_node_update(
     elif node_name in ("quality_panel", "chapter_reviewer"):
         quality = update.get("quality_score")
         if quality is not None:
-            # v6.1: 从 verdict_result 读取 programmatic_score
+            # v8.2: 从 verdict_result 读取 final_score（程序化分已移除）
             verdict = update.get("verdict_result", {})
-            prog_score = verdict.get("programmatic_score") or update.get(
+            unified_score = verdict.get("final_score") or update.get(
                 "composite_score", "?"
             )
             buffer.update_report_section(
                 "quality_review",
-                f"Quality: {quality}/100 | Programmatic: {prog_score}",
+                f"Quality: {quality}/100 | Unified: {unified_score}",
             )
             buffer.add_message("Agent", f"Review: quality={quality}")
 

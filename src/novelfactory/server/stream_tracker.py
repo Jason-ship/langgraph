@@ -61,9 +61,9 @@ class StreamStateTracker:
         quality = state.get("quality_score")
         if quality is not None and quality != self.quality_score:
             self.quality_score = quality
-            # v6.1: 从 verdict_result 读取 programmatic_score
+            # v8.2: 从 verdict_result 读取 final_score（程序化分已移除）
             verdict = state.get("verdict_result", {})
-            self.composite_score = verdict.get("programmatic_score") or state.get(
+            self.composite_score = (verdict.get("final_score") or 0.0) / 100.0 or state.get(
                 "composite_score"
             )
             changed = True
