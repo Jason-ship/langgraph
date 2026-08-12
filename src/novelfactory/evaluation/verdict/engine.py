@@ -14,6 +14,14 @@ from __future__ import annotations
 from langchain_core.language_models import BaseChatModel
 
 from novelfactory.agents.infra import get_logger
+from novelfactory.config.constants import (
+    VERDICT_ITERATION_BONUS_MAX,
+    VERDICT_ITERATION_BONUS_REFINE,
+    VERDICT_ITERATION_BONUS_REWRITE,
+    VERDICT_PASS_THRESHOLD,
+    VERDICT_REFINE_THRESHOLD,
+)
+from novelfactory.config.quality_params import get_param
 from novelfactory.evaluation.schemas import (
     AttemptInfo,
     FeedbackBundle,
@@ -22,21 +30,7 @@ from novelfactory.evaluation.schemas import (
 )
 
 logger = get_logger(__name__)
-def _get_quality_param(key: str, default: float | bool | int) -> float | bool | int:
-    """读取动态质量参数（quality_center 覆盖，默认 constants 值）。
 
-    质量参数中心 (QualityParameterCenter) 支持运行时动态调整，
-    通过飞书反馈 / 对话 Agent / API 实时修改。
-    """
-    try:
-        from novelfactory.config.quality_params import quality_center
-
-        val = quality_center.get(key)
-        if val is not None:
-            return val
-    except Exception:
-        pass
-    return default
 
 class VerdictEngine:
     """统一 LLM 评审融合引擎（v8.2）。
@@ -106,7 +100,7 @@ class VerdictEngine:
             genre=genre,
             prev_summary=prev_summary,
             guide=genre_scoring_guide,
-            retries=int(_get_quality_param("unified.max_retries", 1)),
+            retries=int(get_param("unified.max_retries", 1)),
         )
 
         verdict = self._fuse_unified(
@@ -141,14 +135,18 @@ class VerdictEngine:
         chapter_length: int,
     ) -> VerdictResult:
         """统一评审融合：LLM 综合分 + 迭代加分 + 路由三态（简化版 _fuse）。"""
-        from novelfactory.config.quality_params import quality_center
-
         final_score = ur.final_score
-        # 迭代宽松加分（保留原机制，缓解反复修复）
+        # 迭代宽松加分（保留原机制，缓解反复修复；默认值来自 constants）
         if attempt_info.loop_count > 0 or attempt_info.refine_attempts > 0:
-            bonus_rewrite = float(quality_center.get("verdict.iteration_bonus.rewrite") or 3.0)
-            bonus_refine = float(quality_center.get("verdict.iteration_bonus.refine") or 2.0)
-            bonus_max = float(quality_center.get("verdict.iteration_bonus.max") or 8.0)
+            bonus_rewrite = float(
+                get_param("verdict.iteration_bonus.rewrite") or VERDICT_ITERATION_BONUS_REWRITE
+            )
+            bonus_refine = float(
+                get_param("verdict.iteration_bonus.refine") or VERDICT_ITERATION_BONUS_REFINE
+            )
+            bonus_max = float(
+                get_param("verdict.iteration_bonus.max") or VERDICT_ITERATION_BONUS_MAX
+            )
             bonus = (
                 attempt_info.loop_count * bonus_rewrite
                 + attempt_info.refine_attempts * bonus_refine
@@ -188,10 +186,8 @@ class VerdictEngine:
         attempt_info: AttemptInfo,
     ) -> VerdictLevel:
         """路由三态（保留阈值与次数兜底，severe 毒点由 LLM 判定驱动强制重写）。"""
-        from novelfactory.config.quality_params import quality_center
-
-        pass_th = float(quality_center.get("verdict.pass_threshold") or 73.0)
-        refine_th = float(quality_center.get("verdict.refine_threshold") or 55.0)
+        pass_th = float(get_param("verdict.pass_threshold") or VERDICT_PASS_THRESHOLD)
+        refine_th = float(get_param("verdict.refine_threshold") or VERDICT_REFINE_THRESHOLD)
 
         # 双向用尽强制通过（防死循环）
         both_exhausted = attempt_info.rewrite_exhausted and attempt_info.refine_exhausted

@@ -230,6 +230,23 @@ class ChangeRecord:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
+def get_param(key: str, default: Any = None) -> Any:
+    """模块级便捷读取：quality_center 覆盖优先，缺失/异常时返回 default。
+
+    v8.3: 供 evaluation/verdict 与 evaluation/unified 共用，
+    替代各自重复实现的 _get_*_param 私有函数。
+    """
+    try:
+        from novelfactory.config.quality_params import quality_center
+
+        val = quality_center.get(key)
+        if val is not None:
+            return val
+    except Exception:
+        pass
+    return default
+
+
 class QualityParameterCenter:
     """质量参数动态管理中心（单例）。
 

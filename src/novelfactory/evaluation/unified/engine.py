@@ -10,6 +10,7 @@ from __future__ import annotations
 from langchain_core.language_models import BaseChatModel
 
 from novelfactory.agents.infra import async_llm_call_with_retry, get_logger
+from novelfactory.config.quality_params import get_param
 from novelfactory.evaluation.unified.parser import (
     apply_consistency_check,
     parse_review_output,
@@ -23,18 +24,6 @@ from novelfactory.evaluation.unified.schemas import UnifiedReviewResult
 logger = get_logger(__name__)
 
 _DEFAULT_FALLBACK = 60.0
-
-
-def _get_unified_param(key: str, default: float) -> float:
-    try:
-        from novelfactory.config.quality_params import quality_center
-
-        val = quality_center.get(key)
-        if val is not None:
-            return float(val)
-    except Exception:
-        pass
-    return default
 
 
 class UnifiedReviewEngine:
@@ -52,7 +41,7 @@ class UnifiedReviewEngine:
         guide: str,
         retries: int = 1,
     ) -> UnifiedReviewResult:
-        fallback = _get_unified_param("unified.fallback_score", _DEFAULT_FALLBACK)
+        fallback = float(get_param("unified.fallback_score", _DEFAULT_FALLBACK))
         prompt = build_unified_review_prompt(
             chapter_text=chapter_text, genre=genre, prev_summary=prev_summary, guide=guide,
         )
@@ -104,7 +93,7 @@ class UnifiedReviewEngine:
         当前 REFINE 循环仍走完整 evaluate（防"自卖自夸"），此 API 预留
         给后续"修复后轻量复查"优化，暂未接线。
         """
-        fallback = _get_unified_param("unified.fallback_score", _DEFAULT_FALLBACK)
+        fallback = float(get_param("unified.fallback_score", _DEFAULT_FALLBACK))
         prompt = build_quick_recheck_prompt(
             chapter_text=chapter_text, old_issues=old_issues, old_score=old_score,
         )

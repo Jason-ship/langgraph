@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from typing import Any
 
 from langchain_core.messages import AIMessage
@@ -28,6 +29,7 @@ from novelfactory.config.constants import (
     resolve_genre as _resolve_genre,
 )
 from novelfactory.config.llm import get_reviewer_llm, get_worker_llm
+from novelfactory.config.quality_params import get_param
 from novelfactory.evaluation.schemas import (
     AttemptInfo,
     FeedbackBundle,
@@ -41,6 +43,59 @@ logger = get_logger(__name__)
 
 # 默认最大润色次数（按分数段不同，这里取上限）
 _DEFAULT_MAX_REFINE = 2
+
+
+def _build_recheck_issues(prev_verdict: dict) -> list[str]:
+    """从上轮评审结果提取问题清单（供轻量复查 prompt）。"""
+    fb = prev_verdict.get("feedback") or {}
+    issues = list(fb.get("toxic_points") or []) + list(fb.get("debate_issues") or [])
+    for line in str(fb.get("debate_suggestions", "")).split("\n"):
+        if line.strip():
+            issues.append(line.strip())
+    return issues
+
+
+async def _try_quick_recheck(
+    chapter_text: str,
+    loop_count: int,
+    refine_attempts: int,
+    prev_verdict: dict,
+    llm,
+    sw=None,
+):
+    """修复轮次轻量复查（v8.3）。
+
+    条件：本轮为修复轮次（loop/refine > 0）且上轮评审为 REFINE/REWRITE。
+    复查通过（分数达标 refine_threshold）→ 返回 UnifiedReviewResult 供采信；
+    否则返回 None（走完整评审兜底）。
+    """
+    if loop_count <= 0 and refine_attempts <= 0:
+        return None
+    if str(prev_verdict.get("level", "")).upper() not in ("REFINE", "REWRITE"):
+        return None
+    issues = _build_recheck_issues(prev_verdict)
+    if not issues:
+        return None
+
+    from novelfactory.evaluation.unified import UnifiedReviewEngine
+
+    try:
+        ur = await UnifiedReviewEngine(llm).quick_recheck(
+            chapter_text=chapter_text,
+            old_issues=issues[:10],
+            old_score=float(prev_verdict.get("final_score", 0.0) or 0.0),
+        )
+    except Exception as e:
+        logger.warning("[verdict_engine] 轻量复查失败，走完整评审: %s", e)
+        return None
+    if ur is None or ur.failed:
+        return None
+    refine_th = float(get_param("verdict.refine_threshold") or VERDICT_REFINE_THRESHOLD)
+    if ur.final_score < refine_th:
+        return None  # 复查未达标 → 完整评审兜底
+    if sw:
+        sw.write(f"  [轻量复查] 修复后回归 {ur.final_score:.1f}/100（达标）\n")
+    return ur
 
 
 async def verdict_engine_node(state: dict[str, Any]) -> dict[str, Any]:
@@ -109,42 +164,67 @@ async def verdict_engine_node(state: dict[str, Any]) -> dict[str, Any]:
 
     # 执行评审 (async)
     engine = VerdictEngine()
-    try:
-        verdict = await engine.evaluate(
-            chapter_text=chapter_draft,
-            genre=genre,
-            genre_scoring_guide=genre_scoring_guide,
-            prev_summary=prev_summary,
-            chapter_index=current_ch,
-            attempt_info=attempt_info,
-            reviewer_llm=reviewer_llm,
-            debate_llm=debate_llm,
-        )
-    except Exception as e:
-        logger.exception("[verdict_engine] 评审失败，降级为默认通过: %s", e)
-        if sw:
-            sw.write(f"\n[verdict_engine] ⚠ 评审失败，降级为默认通过: {e}\n")
 
-        verdict = VerdictResult(
-            level=VerdictLevel.PASS,
-            passed=True,
-            final_score=VERDICT_REFINE_THRESHOLD,
-            quality_score=VERDICT_REFINE_THRESHOLD,
-            programmatic_score=50.0,
-            cross_chapter_consistency=VERDICT_REFINE_THRESHOLD,
-            debate_penalty=0.0,
-            feedback=FeedbackBundle(
-                score_summary=f"评审异常降级: {e}",
-                toxic_points=[],
-                shuangdian_points=[],
-                debate_issues=[],
-                debate_strengths=[],
-                debate_suggestions="",
-            ),
-            attempt_info=attempt_info,
-            has_severe_toxic=False,
-            calibration_reason=f"评审失败降级: {e}",
+    # v8.3: 修复轮次先轻量复查（REFINE/REWRITE 后回归检查），达标则跳过完整评审
+    recheck_ur = await _try_quick_recheck(
+        chapter_draft,
+        loop_count,
+        refine_attempts,
+        state.get("verdict_result") or {},
+        reviewer_llm,
+        sw,
+    )
+    if recheck_ur is not None:
+        verdict = engine._fuse_unified(
+            recheck_ur, attempt_info, chapter_length=len(chapter_draft)
         )
+        verdict = replace(verdict, level=VerdictLevel.PASS, passed=True)
+        logger.info(
+            "[verdict_engine] ch%d 轻量复查通过 final=%.1f（跳过完整评审）",
+            current_ch, verdict.final_score,
+        )
+        if sw:
+            sw.write(
+                f"[verdict_engine] 第{current_ch}章轻量复查通过："
+                f"{verdict.final_score:.1f}/100 → PASS（修复完成）\n"
+            )
+    else:
+        try:
+            verdict = await engine.evaluate(
+                chapter_text=chapter_draft,
+                genre=genre,
+                genre_scoring_guide=genre_scoring_guide,
+                prev_summary=prev_summary,
+                chapter_index=current_ch,
+                attempt_info=attempt_info,
+                reviewer_llm=reviewer_llm,
+                debate_llm=debate_llm,
+            )
+        except Exception as e:
+            logger.exception("[verdict_engine] 评审失败，降级为默认通过: %s", e)
+            if sw:
+                sw.write(f"\n[verdict_engine] ⚠ 评审失败，降级为默认通过: {e}\n")
+
+            verdict = VerdictResult(
+                level=VerdictLevel.PASS,
+                passed=True,
+                final_score=VERDICT_REFINE_THRESHOLD,
+                quality_score=VERDICT_REFINE_THRESHOLD,
+                programmatic_score=50.0,
+                cross_chapter_consistency=VERDICT_REFINE_THRESHOLD,
+                debate_penalty=0.0,
+                feedback=FeedbackBundle(
+                    score_summary=f"评审异常降级: {e}",
+                    toxic_points=[],
+                    shuangdian_points=[],
+                    debate_issues=[],
+                    debate_strengths=[],
+                    debate_suggestions="",
+                ),
+                attempt_info=attempt_info,
+                has_severe_toxic=False,
+                calibration_reason=f"评审失败降级: {e}",
+            )
 
     # 流式输出
     if sw:
