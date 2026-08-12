@@ -7,19 +7,20 @@
 
 from __future__ import annotations
 
-import logging
-
 from langchain_core.language_models import BaseChatModel
 
-from novelfactory.agents.infra.async_retry import async_llm_call_with_retry
-from novelfactory.evaluation.unified.parser import apply_consistency_check, parse_review_output
+from novelfactory.agents.infra import async_llm_call_with_retry, get_logger
+from novelfactory.evaluation.unified.parser import (
+    apply_consistency_check,
+    parse_review_output,
+)
 from novelfactory.evaluation.unified.prompts import (
     build_quick_recheck_prompt,
     build_unified_review_prompt,
 )
 from novelfactory.evaluation.unified.schemas import UnifiedReviewResult
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 _DEFAULT_FALLBACK = 60.0
 
@@ -71,7 +72,9 @@ class UnifiedReviewEngine:
                         if "severe" in d or "严重" in d
                     ]
                     if severe_dsg:
-                        from novelfactory.evaluation.unified.arbitration import arbitrate
+                        from novelfactory.evaluation.unified.arbitration import (
+                            arbitrate,
+                        )
 
                         result.final_score = await arbitrate(
                             self._llm,
@@ -95,6 +98,12 @@ class UnifiedReviewEngine:
         old_score: float,
         retries: int = 1,
     ) -> UnifiedReviewResult:
+        """修复后回归复查（轻量）。
+
+        v8.2 状态：解析器已与 `[评分] final=` 格式对齐，可正常解析；
+        当前 REFINE 循环仍走完整 evaluate（防"自卖自夸"），此 API 预留
+        给后续"修复后轻量复查"优化，暂未接线。
+        """
         fallback = _get_unified_param("unified.fallback_score", _DEFAULT_FALLBACK)
         prompt = build_quick_recheck_prompt(
             chapter_text=chapter_text, old_issues=old_issues, old_score=old_score,

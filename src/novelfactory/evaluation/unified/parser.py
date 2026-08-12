@@ -8,14 +8,15 @@ from __future__ import annotations
 
 import re
 
-from novelfactory.evaluation.unified.schemas import UnifiedFourDim, UnifiedReviewResult
+from novelfactory.evaluation.unified.schemas import UnifiedReviewResult
 
 _RE_FINAL = re.compile(r"\[评分\]\s*final\s*=\s*([\d.]+)")
 _RE_DIM = re.compile(r"\[四维-([\u4e00-\u9fa5]+)\]\s*([\d.]+)")
 _RE_TOXIC = re.compile(r"\[毒点\]\s*(.+)")
 _RE_SHUANG = re.compile(r"\[爽点\]\s*(.+)")
 _RE_AI = re.compile(r"\[AI味\]\s*([\d.]+)")
-_RE_ATTR = re.compile(r"\[吸引力\]\s*([\d.]+)\s*\[沉浸\]\s*([\d.]+)")
+_RE_ATTR = re.compile(r"\[吸引力\]\s*([\d.]+)")
+_RE_MM = re.compile(r"\[沉浸\]\s*([\d.]+)")
 _RE_CROSS = re.compile(r"\[跨章\]\s*([\d.]+)")
 _RE_DECAY = re.compile(r"\[衰减\]\s*(\S+)")
 _RE_WATER = re.compile(r"\[废话段\]\s*(.+)")
@@ -90,8 +91,10 @@ def parse_review_output(raw: str) -> UnifiedReviewResult | None:
         result.human_like_score = _first_float(m_ai.group(1))
     m_attr = _RE_ATTR.search(raw)
     if m_attr:
-        result.attraction_score = float(m_attr.group(1))
-        result.immersion_score = float(m_attr.group(2))
+        result.attraction_score = _first_float(m_attr.group(1))
+    m_mm = _RE_MM.search(raw)
+    if m_mm:
+        result.immersion_score = _first_float(m_mm.group(1))
     m_cross = _RE_CROSS.search(raw)
     if m_cross:
         result.cross_chapter_score = _first_float(m_cross.group(1))

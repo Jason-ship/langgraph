@@ -72,6 +72,17 @@ class TestDecideUnifiedLevel:
         level = engine._decide_unified_level(82.0, r, _attempt())
         assert level == VerdictLevel.PASS
 
+    def test_passed_flag_matches_level(self, engine: VerdictEngine) -> None:
+        """passed 字段应与级别一致（PASS=True，其余 False）。"""
+        verdict = engine._fuse_unified(_ok_review(), _attempt(), chapter_length=4000)
+        assert verdict.level == VerdictLevel.PASS
+        assert verdict.passed is True
+        r = _ok_review()
+        r.final_score = 45.0
+        verdict_low = engine._fuse_unified(r, _attempt(), chapter_length=4000)
+        assert verdict_low.level == VerdictLevel.REWRITE
+        assert verdict_low.passed is False
+
     def test_refine_mid_score(self, engine: VerdictEngine) -> None:
         r = _ok_review()
         r.final_score = 60.0

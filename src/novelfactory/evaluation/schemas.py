@@ -367,15 +367,17 @@ class DebateReport(BaseModel):
                  辩论未收敛（双方各执一词）时惩罚可信度低，CAP 折半。
         v7.9: 优先使用 severity_labels（结构化标签），仅当标签列表为空时
               回退到 merged_issues 子串匹配（向后兼容）。
+        v8.1-fix: 惩罚参数改用 quality_center 动态读取（此前硬编码 constants，
+              导致 quality_params 中 verdict.debate_penalty.* 调整不生效）。
         """
-        from novelfactory.config.constants import (
-            VERDICT_DEBATE_PENALTY_CAP as _CAP,
+        from novelfactory.config.quality_params import quality_center
+
+        _CAP = float(quality_center.get("verdict.debate_penalty.cap") or 15.0)
+        _PER_ISSUE = float(
+            quality_center.get("verdict.debate_penalty.per_issue") or 3.0
         )
-        from novelfactory.config.constants import (
-            VERDICT_DEBATE_PENALTY_PER_ISSUE as _PER_ISSUE,
-        )
-        from novelfactory.config.constants import (
-            VERDICT_DEBATE_PENALTY_PER_SEVERE as _PER_SEVERE,
+        _PER_SEVERE = float(
+            quality_center.get("verdict.debate_penalty.per_severe") or 5.0
         )
 
         # 动态 CAP：收敛时完全信任，分歧时减半

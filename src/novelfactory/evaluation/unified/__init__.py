@@ -4,12 +4,20 @@
 单次 LLM 调用五视角评审 + 标签化解析 + 自洽校验 + 分歧驱动仲裁 + 回归复查。
 """
 
+from novelfactory.evaluation.unified.arbitration import arbitrate, parse_arbitration
+from novelfactory.evaluation.unified.engine import UnifiedReviewEngine
+from novelfactory.evaluation.unified.parser import (
+    apply_consistency_check,
+    parse_review_output,
+)
 from novelfactory.evaluation.unified.schemas import UnifiedFourDim, UnifiedReviewResult
-from novelfactory.evaluation.unified.parser import apply_consistency_check, parse_review_output
 
 __all__ = [
     "UnifiedReviewResult",
     "UnifiedFourDim",
+    "UnifiedReviewEngine",
     "parse_review_output",
     "apply_consistency_check",
+    "parse_arbitration",
+    "arbitrate",
 ]

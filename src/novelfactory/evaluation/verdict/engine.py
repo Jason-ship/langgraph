@@ -39,37 +39,25 @@ def _get_quality_param(key: str, default: float | bool | int) -> float | bool | 
     return default
 
 class VerdictEngine:
-    """评分融合引擎 — 将四维 LLM 评分、LLM 语义分析、程序化分析、知情辩论融合为统一决议。
+    """统一 LLM 评审融合引擎（v8.2）。
 
-    融合公式 v7.1（新增 LLM 老书虫 + LLM AI味语义分析）：
-        final_score = quality_score × W_QUALITY
-                    + programmatic_normalized × W_PROGRAMMATIC
-                    + llm_old_reader_score × W_LLM_OLD_READER    ← LLM语义老书虫
-                    + llm_human_like_score × W_LLM_HUMAN_LIKE    ← LLM语义AI味
-                    + cross_chapter_consistency × W_CROSS_CHAPTER
-                    - debate_penalty × W_DEBATE_PENALTY
+    融合逻辑：
+        1. UnifiedReviewEngine 单次调用五视角评审 → UnifiedReviewResult
+           （综合分 + 四维分项 + 毒点/爽点/水段 + 跨章分 + 分歧点）
+        2. 自洽校验（severe 毒点/无爽点硬约束）在 unified/parser 内完成
+        3. 严重分歧 → 轻量仲裁（unified/arbitration）
+        4. _fuse_unified：LLM 综合分 + 迭代宽松加分 → VerdictResult
 
-    融合公式 v8.1（新增 LLM 吸引力专家团队维度）：
-        final_score = quality_score × W_QUALITY
-                    + programmatic_normalized × W_PROGRAMMATIC
-                    + llm_old_reader_score × W_LLM_OLD_READER
-                    + llm_human_like_score × W_LLM_HUMAN_LIKE
-                    + cross_chapter_consistency × W_CROSS_CHAPTER
-                    - debate_penalty × W_DEBATE_PENALTY
-                    + llm_attraction_score × W_ATTRACTION        ← LLM吸引力专家团队
+    决策规则（3 级）：
+        1. 双向次数用尽 → PASS（防死循环兜底）
+        2. 评审失败或 LLM severe 毒点（未用尽重写）→ REWRITE
+        3. final >= pass_threshold → PASS；>= refine_threshold → REFINE；否则 REWRITE
 
-    决策规则（3 级，替代 12 分支）：
-        1. LLM严重毒点 + 未用尽重写 → REWRITE
-        2. 程序化严重毒点 + 未用尽重写 → REWRITE
-        3. final_score >= PASS_THRESHOLD → PASS
-        4. final_score >= REFINE_THRESHOLD → REFINE
-        5. final_score < REFINE_THRESHOLD → REWRITE
-        6. 任何次数用尽 → PASS（防死循环兜底）
+    v8.2 已清除：程序化传感器 / 5 LLM 评分维度 / 多轮辩论 / 加权融合 / 校准模块。
     """
 
     def __init__(self) -> None:
         pass
-
 
     async def evaluate(
         self,
@@ -82,15 +70,10 @@ class VerdictEngine:
         reviewer_llm: BaseChatModel,
         debate_llm: BaseChatModel,
     ) -> VerdictResult:
-        """执行完整评审流程，返回统一决议（async）。
+        """执行统一 LLM 评审，返回统一决议（async）。
 
-        v7.1：新增 LLM 语义分析步骤（老书虫 + AI味），
-        与程序化分析并行互补。
-
-        v8.1：新增 LLM 吸引力专家团队评审步骤（三位专家并行），
-        与老书虫 / AI味维度同构、并行互补。
-
-        v7.8: 全 async — LLM 调用不再阻塞事件循环。
+        v8.2: 单次 LLM 调用完成五视角评审（老书虫/番茄编辑/读者/评论员/四维分项），
+        替代旧"程序化传感器 + 5 LLM 维度并行 + 多轮辩论"。
 
         Args:
             chapter_text: 章节文本
@@ -99,8 +82,8 @@ class VerdictEngine:
             prev_summary: 前文摘要
             chapter_index: 章节序号
             attempt_info: 重写/润色次数追踪
-            reviewer_llm: 四维评分 + LLM 语义分析 LLM
-            debate_llm: 辩论 LLM
+            reviewer_llm: 统一评审 LLM
+            debate_llm: 已弃用（v8.2 辩论由分歧仲裁替代），保留签名兼容调用方
 
         Returns:
             VerdictResult
@@ -174,9 +157,10 @@ class VerdictEngine:
 
         quality_score = ur.four_dim.total()
         feedback = self._build_unified_feedback(ur)
+        level = self._decide_unified_level(final_score, ur, attempt_info)
         verdict = VerdictResult(
-            level=self._decide_unified_level(final_score, ur, attempt_info),
-            passed=False,
+            level=level,
+            passed=level == VerdictLevel.PASS,
             final_score=round(final_score, 1),
             quality_score=quality_score,
             programmatic_score=0.0,  # 程序化已移除，字段保留兼容
@@ -234,7 +218,7 @@ class VerdictEngine:
             return VerdictLevel.REFINE
         return VerdictLevel.REWRITE
 
-    def _build_unified_feedback(self, ur) -> "FeedbackBundle":
+    def _build_unified_feedback(self, ur) -> FeedbackBundle:
         """从统一评审结果构建反馈包（refiner/writer 消费）。"""
         from novelfactory.evaluation.schemas import FeedbackBundle
 

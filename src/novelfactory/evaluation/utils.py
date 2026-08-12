@@ -6,7 +6,9 @@ v7.0: 评审→润色段落编号统一。所有 LLM 看到的章节文本都按
 
 from __future__ import annotations
 
+import json
 import re
+from typing import Any
 
 
 def index_chapter_text(text: str) -> str:
@@ -89,9 +91,6 @@ def apply_paragraph_fixes(original: str, fixes: dict[int, str]) -> str:
             paragraphs[idx] = replacement
     return "\n\n".join(paragraphs)
 
-import json
-import re
-from typing import Any
 
 # ── v8.2 自 debate 迁移：Markdown 分段解析（critic_pre 前置评估用） ──
 
@@ -173,5 +172,20 @@ def parse_markdown_sections(text: str) -> dict[str, Any]:
         result["review_comments"] = cleaned[:500]
 
     return result
+
+
+def _extract_list_items(text: str) -> list[str]:
+    """从文本中提取列表项（- 或 * 或 数字. 开头）。"""
+    items: list[str] = []
+    for line in text.split("\n"):
+        stripped = line.strip()
+        m = re.match(r"^[-*•]\s+(.+)$", stripped)
+        if m:
+            items.append(m.group(1).strip())
+            continue
+        m = re.match(r"^\d+[.)]\s+(.+)$", stripped)
+        if m:
+            items.append(m.group(1).strip())
+    return items
 
 

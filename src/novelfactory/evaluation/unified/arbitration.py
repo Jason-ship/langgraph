@@ -7,15 +7,14 @@
 
 from __future__ import annotations
 
-import logging
 import re
 
 from langchain_core.language_models import BaseChatModel
 
-from novelfactory.agents.infra.async_retry import async_llm_call_with_retry
+from novelfactory.agents.infra import async_llm_call_with_retry, get_logger
 from novelfactory.evaluation.unified.prompts import build_arbitration_prompt
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 _RE_NEW = re.compile(r"\[分数修正\]\s*final:\s*[\d.]+\s*->\s*([\d.]+)")
 _RE_ACTION = re.compile(r"\[备注\]\s*(PASS|REFINE|REWRITE)", re.IGNORECASE)
@@ -28,11 +27,10 @@ def parse_arbitration(raw: str) -> dict | None:
     m = _RE_NEW.search(raw)
     if not m:
         return None
+    m_action = _RE_ACTION.search(raw)
     return {
         "new_score": float(m.group(1)),
-        "action": (
-            _RE_ACTION.search(raw).group(1).upper() if _RE_ACTION.search(raw) else "REFINE"
-        ),
+        "action": m_action.group(1).upper() if m_action else "REFINE",
     }
 
 

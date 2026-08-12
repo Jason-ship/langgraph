@@ -245,3 +245,62 @@ def test_engine_quick_recheck():
     )
     assert r.failed is False
     assert r.final_score == 82.0
+
+
+# 复查 prompt 输出格式（含 [评分] final=，与 parse_review_output 对齐）——
+# 防止 quick_recheck 解析器与复查输出格式再次错位（回归防护）
+RECHECK_PAYLOAD = """<review_analysis>P8 战力铺垫已补，未引入新问题。</review_analysis>
+[复查] passed=true
+[评分] final=80.0
+[毒点] 无
+[新增问题] 无
+[分数变化] final: 68.0 -> 80.0"""
+
+
+def test_parse_recheck_payload():
+    """复查输出应能被统一解析器正常解析（评分标签对齐）。"""
+    r = parse_review_output(RECHECK_PAYLOAD)
+    assert r is not None
+    assert r.final_score == 80.0
+    assert r.toxic_points == []
+
+
+def test_engine_quick_recheck_with_recheck_payload():
+    """quick_recheck 对复查格式输出应解析成功而非 fallback。"""
+    engine = UnifiedReviewEngine(_FakeLlm(RECHECK_PAYLOAD))
+    r = asyncio.run(
+        engine.quick_recheck(chapter_text="正文", old_issues=["P8 战力突兀"], old_score=68.0)
+    )
+    assert r.failed is False
+    assert r.final_score == 80.0
+
+
+# ── v8.2 迁移自 debate 的 Markdown 分段解析（critic_pre 前置评估依赖） ──
+
+from novelfactory.evaluation.utils import parse_markdown_sections
+
+
+def test_parse_markdown_sections_lists():
+    """issues/strengths 列表分支应正确提取（回归防护：_extract_list_items 迁移完整性）。"""
+    raw = """## 评审意见
+整体可以。
+## 问题列表
+- P8 战力突兀
+- P12 水文
+## 亮点
+1. 钩子设置好
+2. 爽点密度高
+## 改进建议
+P8 补铺垫"""
+    r = parse_markdown_sections(raw)
+    assert "整体可以" in r["review_comments"]
+    assert r["issues"] == ["P8 战力突兀", "P12 水文"]
+    assert r["strengths"] == ["钩子设置好", "爽点密度高"]
+    assert "P8 补铺垫" in r["suggestions"]
+
+
+def test_parse_markdown_sections_json_fallback():
+    """JSON 输入兜底解析。"""
+    r = parse_markdown_sections('{"review_comments": "ok", "issues": ["a"]}')
+    assert r["review_comments"] == "ok"
+    assert r["issues"] == ["a"]
