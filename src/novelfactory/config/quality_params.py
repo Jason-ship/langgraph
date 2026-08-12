@@ -27,30 +27,16 @@ from typing import Any
 
 from novelfactory.config.constants import (
     AI_STYLE_THRESHOLD,
-    CALIBRATION_LLM_VIRTUAL_HIGH,
-    CALIBRATION_PROGRAMMATIC_LOW,
-    CALIBRATION_SEVERE_TOXIC_CAP,
-    CALIBRATION_SHORT_TEXT_LLM_WEIGHT,
     COMPOSITE_THRESHOLD,
-    FALLBACK_AI_STYLE_SCORE,
-    FALLBACK_COMPOSITE_SCORE,
-    FALLBACK_LAO_SHU_SCORE,
-    FALLBACK_QUALITY_SCORE,
     LAO_SHU_THRESHOLD,
     MAX_REWRITE_ATTEMPTS,
     QUALITY_SCORE_THRESHOLD,
     REFINE_MAX_ATTEMPTS,
-    VERDICT_DEBATE_PENALTY_CAP,
-    VERDICT_DEBATE_PENALTY_PER_ISSUE,
-    VERDICT_DEBATE_PENALTY_PER_SEVERE,
     VERDICT_ITERATION_BONUS_MAX,
     VERDICT_ITERATION_BONUS_REFINE,
     VERDICT_ITERATION_BONUS_REWRITE,
-    VERDICT_LENGTH_NORMALIZE,
-    VERDICT_NORMALIZE_BASE,
     VERDICT_PASS_THRESHOLD,
     VERDICT_REFINE_THRESHOLD,
-    VERDICT_WEIGHTS,
 )
 
 logger = logging.getLogger(__name__)
@@ -94,21 +80,6 @@ def _register(spec: ParamSpec) -> ParamSpec:
     return spec
 
 
-# ── 融合权重（总和必须 = 1.0） ──
-_W = "weights"
-for _k, _v in VERDICT_WEIGHTS.items():
-    _register(ParamSpec(
-        key=f"verdict.weights.{_k}",
-        module="verdict",
-        value_type=float,
-        default=_v,
-        min_val=0.0,
-        max_val=1.0,
-        description=f"融合权重 - {_k}",
-        category=_W,
-        feedback_tags=(f"verdict.weights.{_k}", "verdict.weights"),
-    ))
-
 # ── 通过阈值 ──
 _register(ParamSpec("verdict.pass_threshold", "verdict", float, VERDICT_PASS_THRESHOLD, 50.0, 95.0,
                     "融合分通过线（≥此值直接 PASS）", "thresholds",
@@ -129,65 +100,6 @@ _register(ParamSpec("verdict.iteration_bonus.max", "verdict", float,
                     VERDICT_ITERATION_BONUS_MAX, 0.0, 20.0,
                     "迭代加分封顶", _IT, ("iteration",)))
 
-# ── 质量衰减 ──
-# v9.0: 与 evaluation/verdict/engine.py _DECAY_* 同步
-_D = "decay"
-_register(ParamSpec("verdict.decay.head_ratio", "verdict", float, 0.30, 0.1, 0.5,
-                    "前段比例（前 N% 为前段）", _D, ("decay",)))
-_register(ParamSpec("verdict.decay.tail_ratio", "verdict", float, 0.30, 0.1, 0.5,
-                    "后段比例（后 N% 为后段）", _D, ("decay",)))
-_register(ParamSpec("verdict.decay.penalty_per_point", "verdict", float, 0.5, 0.0, 2.0,
-                    "每 1 分衰减扣分系数", _D, ("decay",)))
-_register(ParamSpec("verdict.decay.max_penalty", "verdict", float, 8.0, 0.0, 30.0,
-                    "衰减惩罚上限", _D, ("decay",)))
-
-# ── 辩论惩罚 ──
-_DP = "debate_penalty"
-_register(ParamSpec("verdict.debate_penalty.cap", "verdict", float,
-                    VERDICT_DEBATE_PENALTY_CAP, 0.0, 50.0,
-                    "辩论惩罚上限", _DP, ("debate_penalty",)))
-_register(ParamSpec("verdict.debate_penalty.per_issue", "verdict", float,
-                    VERDICT_DEBATE_PENALTY_PER_ISSUE, 0.0, 10.0,
-                    "每个问题扣分", _DP, ("debate_penalty",)))
-_register(ParamSpec("verdict.debate_penalty.per_severe", "verdict", float,
-                    VERDICT_DEBATE_PENALTY_PER_SEVERE, 0.0, 15.0,
-                    "严重问题额外扣分", _DP, ("debate_penalty",)))
-
-# ── 长度归一化 ──
-_LN = "length"
-_register(ParamSpec("verdict.length_normalize", "verdict", bool,
-                    VERDICT_LENGTH_NORMALIZE, *_bool_range(),
-                    "是否启用长度归一化", _LN, ("length",)))
-_register(ParamSpec("verdict.normalize_base", "verdict", int,
-                    VERDICT_NORMALIZE_BASE, 1000, 10000,
-                    "基准字数（中文字符）", _LN, ("length",)))
-
-# ── 校准阈值 ──
-_CAL = "calibration"
-_register(ParamSpec("calibration.llm_virtual_high", "calibration", float,
-                    CALIBRATION_LLM_VIRTUAL_HIGH, 80.0, 100.0,
-                    "LLM 虚高阈值（quality≥此值且程序化低时压分）", _CAL,
-                    ("calibration.llm_virtual_high", "calibration", "评分虚高", "分数偏高")))
-_register(ParamSpec("calibration.programmatic_low", "calibration", float,
-                    CALIBRATION_PROGRAMMATIC_LOW, 0.0, 1.0,
-                    "程序化分过低阈值（<此值触发虚高校准）", _CAL,
-                    ("calibration.programmatic_low", "calibration")))
-_register(ParamSpec("calibration.short_text_llm_weight", "calibration", float,
-                    CALIBRATION_SHORT_TEXT_LLM_WEIGHT, 0.0, 1.0,
-                    "短文本 LLM 权重", _CAL, ("calibration",)))
-_register(ParamSpec("calibration.severe_toxic_cap", "calibration", float,
-                    CALIBRATION_SEVERE_TOXIC_CAP, 0.0, 80.0,
-                    "严重毒点分数封顶值", _CAL,
-                    ("calibration.severe_toxic_cap", "calibration", "毒点")))
-
-# ── 辩论参数 ──
-_DB = "debate"
-_register(ParamSpec("debate.max_rounds", "debate", int, 3, 1, 5,
-                    "最大辩论轮数", _DB,
-                    ("debate.max_rounds", "debate", "辩论不够深入", "辩论太多轮")))
-_register(ParamSpec("debate.convergence_idle_rounds", "debate", int, 2, 1, 3,
-                    "连续无新问题收敛轮数", _DB, ("debate",)))
-
 # ── 重试/迭代限制 ──
 _register(ParamSpec("iteration.max_rewrite", "iteration", int,
                     MAX_REWRITE_ATTEMPTS, 1, 10,
@@ -200,95 +112,6 @@ _register(ParamSpec("iteration.max_refine_mid", "iteration", int,
                     REFINE_MAX_ATTEMPTS["mid"], 0, 5,
                     "60-79 分润色次数", _IT,
                     ("iteration.max_refine", "iteration", "润色不够")))
-
-# ── AI 味 8 维权重（总和必须 = 1.0） ──
-# v9.0: 与 analysis/ai_style_analyzer.py AI_WEIGHTS 同步
-_AI_W = {
-    "repetition_ngram": 0.25,
-    "sentence_length_variance": 0.18,
-    "lexical_diversity": 0.16,
-    "cliche_ratio": 0.20,
-    "punctuation_rhythm": 0.08,
-    "dialogue_ratio": 0.05,
-    "sensory_emotion_density": 0.03,
-    "semantic_smoothness": 0.05,
-}
-for _k, _v in _AI_W.items():
-    _register(ParamSpec(
-        key=f"ai_style.weights.{_k}",
-        module="ai_style",
-        value_type=float,
-        default=_v,
-        min_val=0.0,
-        max_val=1.0,
-        description=f"AI 味权重 - {_k}",
-        category="ai_weights",
-        feedback_tags=(f"ai_style.{_k}", "ai_style", "AI味", "机器味"),
-    ))
-
-# ── 毒点权重 ──
-_TOXIC_W = {
-    "NTR": 50,
-    "SHENGMU": 30,
-    "PROTAGONIST_STUPID": 30,  # v9.0: 原25
-    "NUE_ZHU": 30,  # v9.0: 原25
-    "POWER_BREAK": 20,
-    "ANTAGONIST_STUPID": 15,
-    "CHARACTER_DEATH": 12,  # v9.0: 原15
-    "WATER_CONTENT": 15,
-    "SENTIMENTAL_TORTURE": 10,
-    "MORAL_WRONG": 10,
-}
-for _k, _v in _TOXIC_W.items():
-    _register(ParamSpec(
-        key=f"toxic.weights.{_k}",
-        module="old_reader",
-        value_type=int,
-        default=_v,
-        min_val=0,
-        max_val=100,
-        description=f"毒点权重 - {_k}",
-        category="toxic_weights",
-        feedback_tags=(f"toxic.{_k}", "toxic", "毒点", _k),
-    ))
-
-# ── 爽点权重 ──
-# v9.0: 与 analysis/old_reader_reviewer.py SHUANGDIAN_POINTS 同步
-_SHUANGDIAN_W = {
-    "打脸": 1.0,
-    "装逼": 0.9,
-    "逆袭": 0.90,  # v9.0: 原0.85
-    "升级": 0.85,  # v9.0: 原0.8
-    "感情": 0.70,  # v9.0: 原0.75
-    "悬念": 0.75,  # v9.0: 原0.7
-}
-for _k, _v in _SHUANGDIAN_W.items():
-    _register(ParamSpec(
-        key=f"shuangdian.weights.{_k}",
-        module="old_reader",
-        value_type=float,
-        default=_v,
-        min_val=0.0,
-        max_val=2.0,
-        description=f"爽点权重 - {_k}",
-        category="shuangdian_weights",
-        feedback_tags=(f"shuangdian.{_k}", "shuangdian", "爽点", _k),
-    ))
-
-# ── 降级默认值 ──
-_FB = "fallback"
-_register(ParamSpec("fallback.quality_score", "verdict", float,
-                    FALLBACK_QUALITY_SCORE, 0.0, 100.0,
-                    "降级默认四维评分", _FB, ()))
-_register(ParamSpec("fallback.composite_score", "verdict", float,
-                    FALLBACK_COMPOSITE_SCORE, 0.0, 1.0,
-                    "降级默认综合指标", _FB, ()))
-_register(ParamSpec("fallback.ai_style_score", "verdict", float,
-                    FALLBACK_AI_STYLE_SCORE, 0.0, 1.0,
-                    "降级默认 AI 味指数", _FB, ()))
-_register(ParamSpec("fallback.lao_shu_score", "verdict", float,
-                    FALLBACK_LAO_SHU_SCORE, 0.0, 100.0,
-                    "降级默认老书虫评分", _FB, ()))
 
 # ── 旧版评分阈值（兼容） ──
 _register(ParamSpec("threshold.quality_score", "verdict", float,
@@ -304,7 +127,12 @@ _register(ParamSpec("threshold.lao_shu", "old_reader", float,
                     LAO_SHU_THRESHOLD, 0.0, 100.0,
                     "老书虫评分合格线", "thresholds", ()))
 
-del _k, _v  # 清理循环变量
+# ── 统一评审参数（v8.2 新增） ──
+_U = "unified"
+_register(ParamSpec("unified.max_retries", "unified", int, 1, 0, 3,
+                    "统一评审失败最大重试次数", _U, ("unified",)))
+_register(ParamSpec("unified.fallback_score", "unified", float, 60.0, 0.0, 100.0,
+                    "统一评审失败降级分（REFINE 档）", _U, ("unified",)))
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -312,95 +140,59 @@ del _k, _v  # 清理循环变量
 # ═══════════════════════════════════════════════════════════════════════════════
 
 FEEDBACK_PARAM_MAP: dict[str, list[str]] = {
-    # ── AI 味相关 ──
-    "AI味": ["ai_style", "llm_human_like"],
-    "机器味": ["ai_style", "llm_human_like"],
-    "套话": ["ai_style.cliche_ratio", "llm_human_like"],
-    "模板化": ["ai_style.cliche_ratio", "llm_human_like"],
-    "句式重复": ["ai_style.repetition_ngram", "ai_style.sentence_length_variance"],
-    "词汇单调": ["ai_style.lexical_diversity"],
-    "标点节奏": ["ai_style.punctuation_rhythm"],
-    "对话比例": ["ai_style.dialogue_ratio"],
-
-    # ── 评分标准相关 ──
-    "评分虚高": ["calibration.llm_virtual_high", "calibration.programmatic_low"],
-    "分数偏高": ["calibration.llm_virtual_high"],
+    # ── 评分标准相关（v8.2 保留阈值类） ──
+    "评分虚高": ["unified.fallback_score"],
+    "分数偏高": ["unified.fallback_score"],
     "太松了": ["verdict.pass_threshold", "verdict.refine_threshold"],
     "太严了": ["verdict.pass_threshold", "verdict.refine_threshold"],
-    "垃圾章节通过了": ["verdict.pass_threshold", "calibration.severe_toxic_cap"],
+    "垃圾章节通过了": ["verdict.pass_threshold", "unified.fallback_score"],
     "好章节被重写": ["verdict.pass_threshold", "verdict.refine_threshold"],
 
-    # ── 毒点相关 ──
-    "毒点": ["toxic"],
-    "虐主": ["toxic.NUE_ZHU"],
-    "被虐": ["toxic.NUE_ZHU"],
-    "憋屈": ["toxic.NUE_ZHU"],
-    "压抑": ["toxic.NUE_ZHU"],
-    "圣母": ["toxic.SHENGMU"],
-    "降智": ["toxic.PROTAGONIST_STUPID"],
-    "主角降智": ["toxic.PROTAGONIST_STUPID"],
-    "反派降智": ["toxic.ANTAGONIST_STUPID"],
-    "NTR": ["toxic.NTR"],
-    "战力崩坏": ["toxic.POWER_BREAK"],
-    "水文": ["toxic.WATER_CONTENT"],
-    "煽情": ["toxic.SENTIMENTAL_TORTURE"],
-    "三观不正": ["toxic.MORAL_WRONG"],
+    # ── 内容质量（v8.2 统一评审承接，映射到 unified 评审提示词参数） ──
+    "AI味": ["unified"],
+    "机器味": ["unified"],
+    "套话": ["unified"],
+    "模板化": ["unified"],
+    "句式重复": ["unified"],
+    "毒点": ["unified"],
+    "虐主": ["unified"],
+    "被虐": ["unified"],
+    "憋屈": ["unified"],
+    "压抑": ["unified"],
+    "圣母": ["unified"],
+    "降智": ["unified"],
+    "主角降智": ["unified"],
+    "反派降智": ["unified"],
+    "NTR": ["unified"],
+    "战力崩坏": ["unified"],
+    "水文": ["unified"],
+    "煽情": ["unified"],
+    "三观不正": ["unified"],
 
     # ── 爽点相关 ──
-    "爽点不够": ["shuangdian"],
-    "不够爽": ["shuangdian"],
-    "打脸不够": ["shuangdian.打脸"],
-    "装逼不够": ["shuangdian.装逼"],
-    "逆袭不够": ["shuangdian.逆袭"],
-    "升级不够": ["shuangdian.升级"],
+    "爽点不够": ["unified"],
+    "不够爽": ["unified"],
+    "打脸不够": ["unified"],
+    "装逼不够": ["unified"],
+    "逆袭不够": ["unified"],
+    "升级不够": ["unified"],
 
-    # ── 质量衰减 ──
-    "高开低走": ["decay"],
-    "后段质量下降": ["decay"],
-    "虎头蛇尾": ["decay"],
+    # ── 质量衰减（统一评审 decay_hint 承接） ──
+    "高开低走": ["unified"],
+    "后段质量下降": ["unified"],
+    "虎头蛇尾": ["unified"],
 
-    # ── 辩论相关 ──
-    "辩论不够深入": ["debate.max_rounds"],
-    "辩论太多轮": ["debate.max_rounds"],
+    # ── 辩论相关（分歧仲裁承接） ──
+    "辩论不够深入": ["unified"],
+    "辩论太多轮": ["unified"],
 
     # ── 重写/润色 ──
     "重写次数太多": ["iteration.max_rewrite"],
     "重写次数不够": ["iteration.max_rewrite"],
     "润色不够": ["iteration.max_refine_mid", "iteration.max_refine_high"],
 
-    # ── 融合权重 ──
-    "程序化分析权重": ["verdict.weights.programmatic"],
-    "LLM评分权重": ["verdict.weights.quality"],
-    "跨章一致性权重": ["verdict.weights.cross_chapter"],
-    "吸引力权重": ["verdict.weights.attraction"],
-    "老书虫权重": ["verdict.weights.llm_old_reader"],
-}
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-#  权重组定义（哪些参数变更时需要校验总和 = 1.0）
-# ═══════════════════════════════════════════════════════════════════════════════
-
-WEIGHT_GROUPS: dict[str, list[str]] = {
-    "verdict_weights": [
-        "verdict.weights.quality",
-        "verdict.weights.programmatic",
-        "verdict.weights.llm_old_reader",
-        "verdict.weights.llm_human_like",
-        "verdict.weights.cross_chapter",
-        "verdict.weights.debate_penalty",
-        "verdict.weights.attraction",
-    ],
-    "ai_style_weights": [
-        "ai_style.weights.repetition_ngram",
-        "ai_style.weights.sentence_length_variance",
-        "ai_style.weights.lexical_diversity",
-        "ai_style.weights.cliche_ratio",
-        "ai_style.weights.punctuation_rhythm",
-        "ai_style.weights.dialogue_ratio",
-        "ai_style.weights.sensory_emotion_density",
-        "ai_style.weights.semantic_smoothness",
-    ],
+    # ── 评审口径 ──
+    "评审标准": ["unified.fallback_score", "verdict.pass_threshold"],
 }
 
 
@@ -446,15 +238,15 @@ class QualityParameterCenter:
         from novelfactory.config.quality_params import quality_center
 
         # 读取
-        val = quality_center.get("verdict.weights.quality")
+        val = quality_center.get("verdict.pass_threshold")
 
         # 更新
         quality_center.update("verdict.pass_threshold", 80.0, reason="用户反馈太松")
 
-        # 批量更新（自动校验权重组总和）
+        # 批量更新（v8.2: 统一评审，无权重归一化）
         quality_center.update_many(
-            {"verdict.weights.quality": 0.25, "verdict.weights.programmatic": 0.20},
-            reason="提高 LLM 评分权重",
+            {"verdict.pass_threshold": 75.0, "unified.max_retries": 2},
+            reason="提高通过标准",
         )
 
         # 回滚
@@ -553,11 +345,6 @@ class QualityParameterCenter:
             for key, spec in PARAM_REGISTRY.items()
         }
 
-    def get_weights(self, group_name: str) -> dict[str, float]:
-        """获取权重组的 {key: value} 字典。"""
-        keys = WEIGHT_GROUPS.get(group_name, [])
-        return {k: self.get(k) for k in keys}
-
     # ── 更新 ──────────────────────────────────────────────────────────────
 
     def update(self, key: str, value: Any, reason: str = "", operator: str = "") -> bool:
@@ -596,33 +383,13 @@ class QualityParameterCenter:
         reason: str = "",
         operator: str = "",
     ) -> dict[str, bool]:
-        """批量更新参数。自动校验权重组总和。
+        """批量更新参数。
+
+        v8.2: 权重归一化校验已移除（统一评审无权重融合参数）。
 
         Returns:
             {key: success} 字典
         """
-        # 预校验权重组总和
-        for group_name, group_keys in WEIGHT_GROUPS.items():
-            affected = {k: v for k, v in updates.items() if k in group_keys}
-            if not affected:
-                continue
-            merged = {k: self.get(k) for k in group_keys}
-            merged.update(affected)
-            total = sum(float(v) for v in merged.values())
-            if abs(total - 1.0) > 0.001:
-                logger.warning(
-                    "[QualityParams] Weight group '%s' sum=%.4f != 1.0, auto-normalizing",
-                    group_name, total,
-                )
-                # 归一化整个权重组（含未变更项），保证总和 = 1.0
-                factor = 1.0 / total
-                for k in group_keys:
-                    if k in affected:
-                        updates[k] = round(float(merged[k]) * factor, 4)
-                    else:
-                        # 未变更项也按比例归一化（写入 overrides 保持组内一致）
-                        updates[k] = round(float(self.get(k)) * factor, 4)
-
         results: dict[str, bool] = {}
         change_ids: list[str] = []
         for key, value in updates.items():

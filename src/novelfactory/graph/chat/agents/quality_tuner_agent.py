@@ -87,12 +87,12 @@ def _build_tuner_prompt(
 ### 规则 2：生成参数变更方案
 当需要调整参数时，输出 JSON 操作块：
 <params_update>
-{{"verdict.weights.llm_human_like": 0.10, "ai_style.weights.cliche_ratio": 0.20}}
+{{"verdict.pass_threshold": 75.0, "unified.max_retries": 2}}
 </params_update>
 
 重要约束：
-- 权重类参数（verdict.weights.* 和 ai_style.weights.*）变更后总和必须 = 1.0。
-  如果只改一个权重，需要在 JSON 中同时输出调整后的完整权重组（含未变更项）。
+- v8.2 统一 LLM 评审后，可调参数以阈值/迭代类为主（verdict.pass_threshold、verdict.refine_threshold、verdict.iteration_bonus.*、iteration.max_rewrite、iteration.max_refine_mid、unified.max_retries、unified.fallback_score）。
+- 已移除融合权重类参数（verdict.weights.*、ai_style.weights.* 等），不要再输出此类 key。
 - 数值必须落在参数快照标注的范围内。
 - 如果只是查看/咨询，不要输出 <params_update> 块。
 

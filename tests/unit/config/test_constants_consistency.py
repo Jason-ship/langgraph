@@ -74,3 +74,37 @@ class TestVerdictWeights:
         required = {"quality", "programmatic", "cross_chapter", "debate_penalty"}
         missing = required - set(VERDICT_WEIGHTS.keys())
         assert not missing, f"缺少核心权重: {missing}"
+
+
+class TestParamRegistryCleanup:
+    """v8.2 统一评审：程序化参数从注册表移除，unified 参数新增。"""
+
+    def test_removed_programmatic_params_not_registered(self):
+        from novelfactory.config.quality_params import PARAM_REGISTRY
+
+        for key in (
+            "verdict.weights.programmatic",
+            "verdict.debate_penalty.cap",
+            "calibration.llm_virtual_high",
+            "ai_style.weights.cliche_ratio",
+            "toxic.weights.NTR",
+            "shuangdian.weights.打脸",
+            "debate.max_rounds",
+            "verdict.length_normalize",
+            "fallback.quality_score",
+        ):
+            assert key not in PARAM_REGISTRY, f"程序化参数 {key} 仍残留注册"
+
+    def test_unified_params_registered(self):
+        from novelfactory.config.quality_params import PARAM_REGISTRY
+
+        assert "unified.max_retries" in PARAM_REGISTRY
+        assert "unified.fallback_score" in PARAM_REGISTRY
+
+    def test_threshold_params_kept(self):
+        from novelfactory.config.quality_params import PARAM_REGISTRY
+
+        assert "verdict.pass_threshold" in PARAM_REGISTRY
+        assert "verdict.refine_threshold" in PARAM_REGISTRY
+        assert "verdict.iteration_bonus.rewrite" in PARAM_REGISTRY
+        assert "iteration.max_rewrite" in PARAM_REGISTRY
