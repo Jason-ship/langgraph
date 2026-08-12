@@ -32,7 +32,10 @@ class TestFullPipelineAssembly:
         assert crew is not None
         nodes = set(crew.get_graph().nodes.keys())
         assert "chapter_writer" in nodes
-        assert "quality_panel" in nodes  # v5.5: 辩论评审替代 chapter_reviewer
+        # v8.2: 评审节点为 verdict_engine（统一 LLM 评审），quality_panel 已随旧评审移除
+        assert "verdict_engine" in nodes
+        assert "chapter_planner" in nodes
+        assert "chapter_refiner" in nodes
         assert crew.recursion_limit == 200
 
     def test_media_crew_compiles(self):
@@ -100,14 +103,14 @@ class TestNodePipelineIntegration:
             "chapter_human_guidance", "volume_check",
         )
 
-    def test_score_router_accepts_fake_state(self):
-        from novelfactory.graph.crews.writing_nodes.routing import _score_router
+    def test_verdict_router_accepts_state(self):
+        # v8.2: _score_router 早已被 verdict_router 替代（v6.3），本测试同步更新
+        from novelfactory.evaluation.verdict.router import verdict_router
         state = type("obj", (), {
-            "quality_score": 95.0, "composite_score": 0.8,
-            "loop_count": 0, "refine_attempts": 0,
+            "verdict_result": {"level": "pass"},
             "get": lambda self, k, d=0: getattr(self, k, d),
         })()
-        result = _score_router(state)
+        result = verdict_router(state)
         assert result in ("__exit_for_chapter__", "chapter_writer", "chapter_refiner")
 
 
