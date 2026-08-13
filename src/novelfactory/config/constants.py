@@ -510,7 +510,7 @@ FALLBACK_DEGRADE_RESULT: dict = {
 OUTLINE_DEFAULT_WORD_COUNT = 3000  # 章默认字数目标
 
 # ── 滑动上下文窗口 (SlidingContextWindow) ──
-CONTEXT_KEY_EVENTS_MAX = 50  # 高重要性事件最大返回数
+CONTEXT_KEY_EVENTS_MAX = 30  # 高重要性事件最大返回数（v9.1: 50→20→30，1M 上下文放宽，高重要性优先）
 CONTEXT_KEY_EVENT_IMPORTANCE_THRESHOLD = 5  # 高重要性事件阈值
 CONTEXT_RECENT_EVENTS_COUNT = 5  # 最近事件返回数
 CONTEXT_PREV_SUMMARIES_COUNT = 3  # 前情提要素材数
@@ -607,9 +607,9 @@ VERDICT_WEIGHTS: dict[str, float] = {
 
 # v7.0: 迭代次数宽松加分 — 重写/润色多次后逐渐放宽评分，防止死循环
 # 让 final_score 随迭代次数逐步提升，而非次数用尽时一刀切强通过
-VERDICT_ITERATION_BONUS_REWRITE = 3.0  # 每次重写加 3 分
-VERDICT_ITERATION_BONUS_REFINE = 2.0  # 每次润色加 2 分
-VERDICT_ITERATION_BONUS_MAX = 8.0  # v9.0: 封顶 8 分（原10，降低"次品堆分通过"风险）
+VERDICT_ITERATION_BONUS_REWRITE = 2.0  # 每次重写加 2 分
+VERDICT_ITERATION_BONUS_REFINE = 1.0  # 每次润色加 1 分
+VERDICT_ITERATION_BONUS_MAX = 4.0  # v9.1: 封顶 4 分（原8，进一步收紧"次品堆分通过"风险）
 
 # v7.3: 长度归一化（Log Length Penalty）
 # 参考 Lost in Stories (微软, 2026) 消除 Verbosity Bias 的思路：
@@ -622,7 +622,7 @@ VERDICT_LENGTH_NORMALIZE = True  # 是否启用长度归一化
 VERDICT_NORMALIZE_BASE = 3000  # 基准字数（中文字符）
 
 # 决策阈值
-VERDICT_PASS_THRESHOLD = 73.0  # v9.0: 融合分通过线（原75，降低重写迭代成本）
+VERDICT_PASS_THRESHOLD = 80.0  # v9.1: 融合分通过线（原73，门控收紧）
 VERDICT_REFINE_THRESHOLD = 55.0  # 融合分润色/重写分界
 
 # 辩论惩罚

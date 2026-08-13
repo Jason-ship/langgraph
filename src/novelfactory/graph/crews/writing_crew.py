@@ -28,6 +28,8 @@
     路由规则 (verdict_router):
         PASS    → state_extractor_node → database_writer_node → __exit_for_chapter__ → END
         REFINE  → chapter_refiner → verdict_engine (re-review, 最多 2 次)
+                  v9.1 两级策略升级：第1轮=段落级修复（点修复），
+                  重审仍 REFINE → 第2轮=整章润色兜底（面修复）
         REWRITE → chapter_planner → chapter_writer → verdict_engine (重新规划+重写, 最多 5 次)
 
     防死循环：
@@ -155,6 +157,7 @@ def build_writing_crew(checkpointer: Any = None) -> CompiledStateGraph:
                                                                 │
                             ├── "chapter_writer"     (score < 60, rewrite loop)
                             ├── "chapter_refiner"    (score 60-89, refine)
+                            │       └─ v9.1 两级：1=段落修复, 2=整章润色兜底
                             └── "__exit_for_chapter__"
                                   (双条件通过 OR loop 用尽)
                                     │

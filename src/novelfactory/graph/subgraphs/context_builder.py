@@ -464,7 +464,7 @@ def _build_cross_chapter_tracking(
         )
         active_count = 0
         for name, info in sorted_chars:
-            if active_count >= 25:
+            if active_count >= 20:  # v9.1: 12→20，1M 上下文放宽（保留精简，只多列关键角色）
                 break
             loc = info.get("location", "?")
             status = info.get("status", "健在")
@@ -480,9 +480,9 @@ def _build_cross_chapter_tracking(
             if power and power != "未知":
                 line += f" | {power}"
             if mood:
-                line += f" | 心境：{mood}"
+                line += f" | 心境：{mood[:20]}"
             if items:
-                line += f" | 持有：{'、'.join(items[:3])}"
+                line += f" | 持有：{'、'.join(items[:1])}"
             lines.append(line)
             active_count += 1
 
@@ -491,13 +491,13 @@ def _build_cross_chapter_tracking(
     # Unresolved threads with cross-chapter continuity
     if open_threads:
         lines = ["【跨章待处理线索】"]
-        for t in open_threads[:15]:
+        for t in open_threads[:12]:  # v9.1: 8→12，1M 上下文放宽（保留精简）
             name = t.get("thread_name", "?")
             desc = str(t.get("description", ""))[:120]
             created = t.get("created_chapter", "?")
             lines.append(f"  [{name}] (第{created}章起) {desc}")
-        if len(open_threads) > 8:
-            lines.append(f"  ...还有 {len(open_threads) - 8} 条线索")
+        if len(open_threads) > 12:
+            lines.append(f"  ...还有 {len(open_threads) - 12} 条线索")
         parts.append("\n".join(lines))
 
     return "\n".join(parts) if parts else ""
@@ -548,7 +548,7 @@ def _aggregate_node(state: ContextBuilderState) -> dict:
     similar: list[dict[str, Any]] = state.get("similar_chapters", []) or []
     if similar:
         lines = ["【相关前文章节】"]
-        for s in similar[:5]:
+        for s in similar[:5]:  # v9.1: 3→5，1M 上下文放宽（保留精简）
             ch_num = s.get("chapter", "?")
             score = s.get("score", 0)
             lines.append(f"  第{ch_num}章 (相似度={score:.2f})")

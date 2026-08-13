@@ -56,12 +56,12 @@ class TestFuseUnified:
 
     def test_iteration_bonus(self, engine: VerdictEngine) -> None:
         verdict = engine._fuse_unified(_ok_review(), _attempt(loop=2, refine=1), chapter_length=4000)
-        # 82 + min(2*3 + 1*2, 8) = 90
-        assert verdict.final_score == pytest.approx(90.0)
+        # v9.1: 82 + min(2*2 + 1*1, 4) = 86（加分收紧：rewrite=2/refine=1/封顶4）
+        assert verdict.final_score == pytest.approx(86.0)
 
     def test_iteration_bonus_capped(self, engine: VerdictEngine) -> None:
         verdict = engine._fuse_unified(_ok_review(), _attempt(loop=5, refine=2), chapter_length=4000)
-        assert verdict.final_score == pytest.approx(90.0)  # 封顶 8 分
+        assert verdict.final_score == pytest.approx(86.0)  # 封顶 4 分
 
 
 class TestDecideUnifiedLevel:

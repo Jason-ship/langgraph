@@ -128,5 +128,5 @@ class TestUnifiedIntegration:
         """迭代宽松加分保留：重写/润色次数越多分数越高（封顶）。"""
         attempt = AttemptInfo(loop_count=2, refine_attempts=1, max_rewrite=5, max_refine=2)
         verdict, _ = await _run_evaluate(monkeypatch, _ok_review(), attempt=attempt)
-        # 82 + min(2*3 + 1*2, 8) = 90
-        assert verdict.final_score == pytest.approx(90.0)
+        # v9.1: 82 + min(2*2 + 1*1, 4) = 86（加分收紧：rewrite=2/refine=1/封顶4）
+        assert verdict.final_score == pytest.approx(86.0)
