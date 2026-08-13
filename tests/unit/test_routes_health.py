@@ -33,7 +33,7 @@ _fake_process.create_time.return_value = 1000000.0
 _fake_psutil.Process.return_value = _fake_process
 sys.modules["psutil"] = _fake_psutil
 
-from novelfactory.server.app import app
+from novelfactory.server.app import app  # noqa: E402
 
 client = pytest.mark.anyio  # 标记异步支持（通过 pytest-asyncio）
 

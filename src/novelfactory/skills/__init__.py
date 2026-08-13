@@ -6,7 +6,8 @@
 from novelfactory.skills.manager import Skill, SkillManager
 from novelfactory.skills.parser import parse_skill_file, split_skill_markdown
 from novelfactory.skills.storage import SkillStorage, get_or_new_skill_storage
-from novelfactory.skills.types import SecretRequirement, Skill as SkillType, SkillCategory
+from novelfactory.skills.types import SecretRequirement, SkillCategory
+from novelfactory.skills.types import Skill as SkillType
 
 __all__ = [
     "Skill",

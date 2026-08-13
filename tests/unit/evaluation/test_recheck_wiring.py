@@ -9,9 +9,10 @@ from __future__ import annotations
 
 import asyncio
 
-import pytest
-
-from novelfactory.evaluation.coordinator import _build_recheck_issues, _try_quick_recheck
+from novelfactory.evaluation.coordinator import (
+    _build_recheck_issues,
+    _try_quick_recheck,
+)
 from novelfactory.evaluation.schemas import (
     AttemptInfo,
     FeedbackBundle,

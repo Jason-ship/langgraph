@@ -8,9 +8,7 @@
 
 from __future__ import annotations
 
-import pytest
-
-from novelfactory.evaluation.schemas import DebateReport, PerspectiveReview, Rebuttal
+from novelfactory.evaluation.schemas import DebateReport
 
 
 class TestDebateSeverityWeight:

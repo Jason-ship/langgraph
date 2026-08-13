@@ -10,7 +10,7 @@ from __future__ import annotations
 import ipaddress
 import logging
 import socket
-from typing import Callable
+from collections.abc import Callable
 from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)

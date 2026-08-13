@@ -7,8 +7,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from novelfactory.agents.infra.serialization import validate_json_output
 
 

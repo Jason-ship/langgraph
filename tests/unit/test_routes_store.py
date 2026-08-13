@@ -67,9 +67,9 @@ class FakeStoreGraph:
 
 # ── 导入 app ──
 
-from fastapi.testclient import TestClient
+from fastapi.testclient import TestClient  # noqa: E402
 
-from novelfactory.server.app import app
+from novelfactory.server.app import app  # noqa: E402
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 

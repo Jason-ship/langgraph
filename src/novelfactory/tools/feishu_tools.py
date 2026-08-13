@@ -62,9 +62,8 @@ def send_feishu_message(receive_id: str, text: str, id_type: str = "open_id") ->
     # Try channel layer first (only for chat_id type)
     if receive_id.startswith("oc_"):
         try:
-            from novelfactory.channels.adapter import send_channel_message
 
-            import asyncio
+            from novelfactory.channels.adapter import send_channel_message
             loop = _get_tool_event_loop()
             sent = loop.run_until_complete(
                 send_channel_message(receive_id, text)

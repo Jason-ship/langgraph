@@ -5,15 +5,14 @@ Migrated from DeerFlow gateway/routers/channel_connections.py.
 
 from __future__ import annotations
 
-import secrets
 import logging
+import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from novelfactory.channels.runtime_config_store import ChannelRuntimeConfigStore
 from novelfactory.channels.service import get_channel_service
 
 router = APIRouter(prefix="/channels", tags=["channels"])

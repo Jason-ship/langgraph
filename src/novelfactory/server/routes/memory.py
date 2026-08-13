@@ -11,7 +11,7 @@ import logging
 import uuid
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -22,23 +22,23 @@ class ContextSection(BaseModel):
     """上下文区块。"""
 
     summary: str = Field(default="", description="摘要内容")
-    updatedAt: str = Field(default="", description="更新时间")
+    updatedAt: str = Field(default="", description="更新时间")  # noqa: N815 — API 协议字段
 
 
 class UserContext(BaseModel):
     """用户上下文。"""
 
-    workContext: ContextSection = Field(default_factory=ContextSection)
-    personalContext: ContextSection = Field(default_factory=ContextSection)
-    topOfMind: ContextSection = Field(default_factory=ContextSection)
+    workContext: ContextSection = Field(default_factory=ContextSection)  # noqa: N815 — API 协议字段
+    personalContext: ContextSection = Field(default_factory=ContextSection)  # noqa: N815 — API 协议字段
+    topOfMind: ContextSection = Field(default_factory=ContextSection)  # noqa: N815 — API 协议字段
 
 
 class HistoryContext(BaseModel):
     """历史上下文。"""
 
-    recentMonths: ContextSection = Field(default_factory=ContextSection)
-    earlierContext: ContextSection = Field(default_factory=ContextSection)
-    longTermBackground: ContextSection = Field(default_factory=ContextSection)
+    recentMonths: ContextSection = Field(default_factory=ContextSection)  # noqa: N815 — API 协议字段
+    earlierContext: ContextSection = Field(default_factory=ContextSection)  # noqa: N815 — API 协议字段
+    longTermBackground: ContextSection = Field(default_factory=ContextSection)  # noqa: N815 — API 协议字段
 
 
 class Fact(BaseModel):
@@ -48,7 +48,7 @@ class Fact(BaseModel):
     content: str = Field(..., description="事实内容")
     category: str = Field(default="context", description="分类")
     confidence: float = Field(default=0.5, description="置信度(0-1)")
-    createdAt: str = Field(default="", description="创建时间")
+    createdAt: str = Field(default="", description="创建时间")  # noqa: N815 — API 协议字段
     source: str = Field(default="unknown", description="来源线程 ID")
 
 
@@ -56,7 +56,7 @@ class MemoryResponse(BaseModel):
     """记忆数据响应。"""
 
     version: str = Field(default="1.0")
-    lastUpdated: str = Field(default="")
+    lastUpdated: str = Field(default="")  # noqa: N815 — API 协议字段
     user: UserContext = Field(default_factory=UserContext)
     history: HistoryContext = Field(default_factory=HistoryContext)
     facts: list[Fact] = Field(default_factory=list)

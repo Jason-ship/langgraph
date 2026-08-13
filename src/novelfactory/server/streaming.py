@@ -207,7 +207,7 @@ async def _create_run_impl(thread_id: str, run: RunRequest) -> Response:
     """Shared implementation for creating a run on a thread."""
     # Lazy imports to avoid circular dependency with app.py
     from novelfactory.config.constants import RECURSION_LIMIT
-    from novelfactory.server.app import _add_run_to_store, get_router, get_app
+    from novelfactory.server.app import _add_run_to_store, get_app, get_router
 
     # Determine which graph to use based on assistant_id
     assistant_id = getattr(run, "assistant_id", "novelfactory") or "novelfactory"

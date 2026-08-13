@@ -10,7 +10,6 @@ This middleware strips those tool_calls when a safety termination is detected.
 from __future__ import annotations
 
 import logging
-from typing import Any, override
 
 from langchain_core.messages import AIMessage
 

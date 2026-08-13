@@ -12,10 +12,9 @@ import hashlib
 import json
 import logging
 from collections import OrderedDict, defaultdict
-from collections.abc import Callable
 from typing import Any
 
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage
 
 logger = logging.getLogger(__name__)
 

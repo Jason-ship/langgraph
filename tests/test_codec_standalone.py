@@ -21,12 +21,12 @@ from __future__ import annotations
 import json
 from typing import Any
 
-import networkx as nx
 import pytest
 
 # ── 待测试模块导入 ──────────────────────────────────────────────────────────
 from novelfactory.pipeline.narrative_codec.crew import build_codec_crew
 from novelfactory.pipeline.narrative_codec.schemas import (
+    VALID_STAC_BONDS,
     CausalGraph,
     ConsistencyErrorType,
     EmotionArc,
@@ -34,13 +34,12 @@ from novelfactory.pipeline.narrative_codec.schemas import (
     EventNode,
     ExpertIndex,
     NarrativeStage,
+    Scene,
     STACBond,
     STACLabel,
     STACLabeledSentence,
-    Scene,
     StructuredProtocol,
     TraitVector,
-    VALID_STAC_BONDS,
 )
 from novelfactory.pipeline.narrative_codec.state import CodecCrewLocalState
 from novelfactory.pipeline.narrative_codec.tools import (
@@ -49,7 +48,6 @@ from novelfactory.pipeline.narrative_codec.tools import (
     extract_emotion_arc,
     find_scene_boundaries,
 )
-
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Mock 对象

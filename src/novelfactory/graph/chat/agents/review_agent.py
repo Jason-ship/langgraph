@@ -110,9 +110,9 @@ def _is_review_request(text: str) -> bool:
 def _build_review_response(result: dict, chapter_draft: str) -> str:
     """Build a conversational review response from the review result."""
     lines = [
-        f"## 📊 评审结果\n",
+        "## 📊 评审结果\n",
         f"**{result['level_text']}** | 综合评分: **{result['final_score']:.1f}/100**\n",
-        f"### 评分明细\n",
+        "### 评分明细\n",
         f"- 四维质量: {result['quality_score']:.0f}/100",
         f"- AI 味指数: {result['ai_style_score']:.3f}（越低越好）",
         f"- 老书虫评分: {result['lao_shu_chong_score']:.0f}/100",

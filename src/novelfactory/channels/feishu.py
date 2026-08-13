@@ -16,7 +16,10 @@ from pathlib import Path
 from typing import Any, Literal
 
 from novelfactory.channels.base import Channel
-from novelfactory.channels.commands import is_known_channel_command, strip_leading_mentions
+from novelfactory.channels.commands import (
+    is_known_channel_command,
+    strip_leading_mentions,
+)
 from novelfactory.channels.connection_identity import attach_connection_identity
 from novelfactory.channels.message_bus import (
     PENDING_CLARIFICATION_METADATA_KEY,

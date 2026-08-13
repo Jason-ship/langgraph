@@ -91,7 +91,6 @@ def langchain_to_openai_completion(message: Any, model: str = "") -> dict[str, A
     """
     import uuid
 
-    content = message.content if isinstance(message.content, str) else ""
     finish_reason = _infer_finish_reason(message)
 
     usage = getattr(message, "response_metadata", {}).get("token_usage", {}) if hasattr(message, "response_metadata") else {}

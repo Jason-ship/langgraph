@@ -10,7 +10,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from novelfactory.channels.base import Channel
-from novelfactory.channels.manager import DEFAULT_RECURSION_LIMIT, ChannelManager
+from novelfactory.channels.manager import ChannelManager
 from novelfactory.channels.message_bus import MessageBus
 from novelfactory.channels.store import ChannelStore
 

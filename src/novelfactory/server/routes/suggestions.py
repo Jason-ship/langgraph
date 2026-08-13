@@ -7,7 +7,6 @@ Migrated from DeerFlow app/gateway/routers/suggestions.py.
 
 from __future__ import annotations
 
-import json
 import logging
 
 from fastapi import APIRouter

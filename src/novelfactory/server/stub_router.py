@@ -152,7 +152,6 @@ async def branch_thread(thread_id: str):
 @router.post("/threads/{thread_id}/compact")
 async def compact_thread(thread_id: str):
     """压缩线程上下文（stub）。"""
-    now = datetime.now(UTC).isoformat()
     return {
         "thread_id": thread_id,
         "compacted": True,

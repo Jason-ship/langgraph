@@ -461,9 +461,9 @@ app.include_router(skills_router)
 app.include_router(stub_router)
 
 # ── Static Files ──────────────────────────────────────────────────────────────
-import os as _os
+import os as _os  # noqa: E402
 
-from fastapi.staticfiles import StaticFiles
+from fastapi.staticfiles import StaticFiles  # noqa: E402
 
 _static_dir = _os.path.join(_os.path.dirname(__file__), "static")
 if _os.path.isdir(_static_dir):

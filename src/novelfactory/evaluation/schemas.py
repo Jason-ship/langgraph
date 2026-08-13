@@ -372,27 +372,27 @@ class DebateReport(BaseModel):
         """
         from novelfactory.config.quality_params import quality_center
 
-        _CAP = float(quality_center.get("verdict.debate_penalty.cap") or 15.0)
-        _PER_ISSUE = float(
+        _cap = float(quality_center.get("verdict.debate_penalty.cap") or 15.0)
+        _per_issue = float(
             quality_center.get("verdict.debate_penalty.per_issue") or 3.0
         )
-        _PER_SEVERE = float(
+        _per_severe = float(
             quality_center.get("verdict.debate_penalty.per_severe") or 5.0
         )
 
         # 动态 CAP：收敛时完全信任，分歧时减半
-        cap = _CAP if self.convergence_achieved else _CAP * 0.5
+        cap = _cap if self.convergence_achieved else _cap * 0.5
 
-        base = len(self.merged_issues) * _PER_ISSUE
+        base = len(self.merged_issues) * _per_issue
 
         # 优先使用结构化 severity_labels
         if self.severity_labels:
-            severe = len(self.severity_labels) * _PER_SEVERE
+            severe = len(self.severity_labels) * _per_severe
         else:
             # 向后兼容：旧数据无 severity_labels 时用子串匹配
             severe = sum(
                 1 for i in self.merged_issues if "严重" in i or "毒点" in i
-            ) * _PER_SEVERE
+            ) * _per_severe
 
         return min(cap, base + severe)
 

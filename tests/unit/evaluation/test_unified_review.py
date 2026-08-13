@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import asyncio
 
+from novelfactory.evaluation.unified.parser import (
+    apply_consistency_check,
+    parse_review_output,
+)
 from novelfactory.evaluation.unified.schemas import UnifiedFourDim, UnifiedReviewResult
-from novelfactory.evaluation.unified.parser import parse_review_output, apply_consistency_check
 
 SAMPLE = """<review_analysis>毒点核查：P8 战力突兀。</review_analysis>
 [评分] final=78.5
@@ -101,7 +104,7 @@ def test_parse_empty_returns_none():
 
 # ── Task 3: prompts ────────────────────────────────────────────────────────
 
-from novelfactory.evaluation.unified.prompts import (
+from novelfactory.evaluation.unified.prompts import (  # noqa: E402
     build_arbitration_prompt,
     build_quick_recheck_prompt,
     build_unified_review_prompt,
@@ -138,7 +141,10 @@ def test_build_arbitration_prompt_injects_disagreements():
 
 # ── Task 4A: 仲裁模块 ──────────────────────────────────────────────────────
 
-from novelfactory.evaluation.unified.arbitration import arbitrate, parse_arbitration
+from novelfactory.evaluation.unified.arbitration import (  # noqa: E402
+    arbitrate,
+    parse_arbitration,
+)
 
 ARB = """<review_analysis>权衡：老书虫看重战力一致，番茄编辑看重节奏。</review_analysis>
 [裁决] 采纳老书虫：P8 需补战力铺垫，但不必重写整章
@@ -176,7 +182,7 @@ def test_arbitrate_empty_returns_old():
 
 # ── Task 4: 统一评审引擎 ────────────────────────────────────────────────────
 
-from novelfactory.evaluation.unified.engine import UnifiedReviewEngine
+from novelfactory.evaluation.unified.engine import UnifiedReviewEngine  # noqa: E402
 
 OK_REVIEW = """<review_analysis>ok</review_analysis>
 [评分] final=82.0
@@ -277,7 +283,7 @@ def test_engine_quick_recheck_with_recheck_payload():
 
 # ── v8.2 迁移自 debate 的 Markdown 分段解析（critic_pre 前置评估依赖） ──
 
-from novelfactory.evaluation.utils import parse_markdown_sections
+from novelfactory.evaluation.utils import parse_markdown_sections  # noqa: E402
 
 
 def test_parse_markdown_sections_lists():

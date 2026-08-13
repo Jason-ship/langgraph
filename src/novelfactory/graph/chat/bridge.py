@@ -181,7 +181,7 @@ def map_batch_to_lead(batch_state: dict[str, Any]) -> dict[str, Any]:
     quality_score = batch_state.get("quality_score", 0)
 
     _status_lines = [
-        f"✅ 自动创作已完成！\n",
+        "✅ 自动创作已完成！\n",
         f"**进度**: 已完成 {chapter_count} 章",
         f"**当前章节**: 第{batch_state.get('current_chapter', 1)}章",
     ]

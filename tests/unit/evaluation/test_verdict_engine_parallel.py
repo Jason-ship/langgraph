@@ -9,12 +9,11 @@ v8.2 重构后 evaluate() 走 UnifiedReviewEngine 单次调用五视角评审，
 
 from __future__ import annotations
 
-import asyncio
 from types import SimpleNamespace
 
 import pytest
 
-from novelfactory.evaluation.schemas import AttemptInfo, VerdictResult
+from novelfactory.evaluation.schemas import AttemptInfo
 from novelfactory.evaluation.unified import UnifiedFourDim, UnifiedReviewResult
 from novelfactory.evaluation.verdict.engine import VerdictEngine
 

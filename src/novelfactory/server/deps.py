@@ -86,7 +86,7 @@ async def get_graph_router() -> GraphRouter:
 
 # ── 通用依赖注入工厂（参考 DeerFlow deps.py _require 模式） ──────────────
 
-from fastapi import HTTPException, Request
+from fastapi import HTTPException, Request  # noqa: E402
 
 
 def _require(attr: str, label: str):

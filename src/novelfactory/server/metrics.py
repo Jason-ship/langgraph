@@ -101,6 +101,7 @@ _METRIC_TYPE = {
 
 # 编译一次正则避免运行时重复构造
 import re  # noqa: E402
+
 _INVALID_NAME_RE = re.compile(r"[^a-zA-Z0-9_:]")
 
 

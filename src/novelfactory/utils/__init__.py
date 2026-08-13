@@ -10,7 +10,10 @@ Migrated utility modules from DeerFlow:
 
 from novelfactory.utils.message_utils import message_content_to_text, message_to_text
 from novelfactory.utils.reflection import resolve_class, resolve_variable
-from novelfactory.utils.serialization import serialize_channel_values, serialize_lc_object
+from novelfactory.utils.serialization import (
+    serialize_channel_values,
+    serialize_lc_object,
+)
 from novelfactory.utils.sse import format_sse, format_sse_event
 from novelfactory.utils.time_utils import coerce_iso, now_iso
 from novelfactory.utils.user_context import (

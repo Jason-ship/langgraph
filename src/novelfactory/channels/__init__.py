@@ -4,6 +4,16 @@ Migrated from DeerFlow channels layer (v2.1.0).
 Provides MessageBus, Channel base class, ChannelManager, and FeishuChannel.
 """
 
+from novelfactory.channels.base import Channel
+from novelfactory.channels.commands import (
+    KNOWN_CHANNEL_COMMANDS,
+    is_known_channel_command,
+)
+from novelfactory.channels.feishu import FeishuChannel
+from novelfactory.channels.feishu_run_policy import (
+    register_policy as register_feishu_policy,
+)
+from novelfactory.channels.manager import ChannelManager
 from novelfactory.channels.message_bus import (
     InboundMessage,
     InboundMessageType,
@@ -11,9 +21,8 @@ from novelfactory.channels.message_bus import (
     OutboundMessage,
     ResolvedAttachment,
 )
-from novelfactory.channels.base import Channel
-from novelfactory.channels.feishu import FeishuChannel
-from novelfactory.channels.manager import ChannelManager
+from novelfactory.channels.run_policy import CHANNEL_RUN_POLICY, ChannelRunPolicy
+from novelfactory.channels.runtime_config_store import ChannelRuntimeConfigStore
 from novelfactory.channels.service import (
     ChannelService,
     get_channel_service,
@@ -21,10 +30,6 @@ from novelfactory.channels.service import (
     stop_channel_service,
 )
 from novelfactory.channels.store import ChannelStore
-from novelfactory.channels.run_policy import ChannelRunPolicy, CHANNEL_RUN_POLICY
-from novelfactory.channels.feishu_run_policy import register_policy as register_feishu_policy
-from novelfactory.channels.commands import KNOWN_CHANNEL_COMMANDS, is_known_channel_command
-from novelfactory.channels.runtime_config_store import ChannelRuntimeConfigStore
 
 __all__ = [
     "InboundMessage",

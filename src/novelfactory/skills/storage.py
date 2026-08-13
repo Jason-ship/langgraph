@@ -5,12 +5,9 @@ Migrated from DeerFlow skills/storage/ + skills/catalog.py.
 
 from __future__ import annotations
 
-import json
 import logging
-import tempfile
 import threading
 from pathlib import Path
-from typing import Any
 
 from novelfactory.skills.parser import parse_skill_file
 from novelfactory.skills.types import Skill, SkillCategory

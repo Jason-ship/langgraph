@@ -7,7 +7,6 @@ when available, falling back to the existing FeishuToolkit → tools-proxy path.
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from novelfactory.channels.message_bus import OutboundMessage
 from novelfactory.channels.service import get_channel_service

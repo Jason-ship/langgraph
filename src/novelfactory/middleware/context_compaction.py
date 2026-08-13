@@ -9,7 +9,6 @@ and write a compacted checkpoint, preserving only the recent active window.
 
 from __future__ import annotations
 
-import hashlib
 import logging
 from dataclasses import dataclass
 from typing import Any
@@ -17,11 +16,11 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-class ContextCompactionDisabled(RuntimeError):
+class ContextCompactionDisabledError(RuntimeError):
     """Raised when compaction is requested but summarization is not configured."""
 
 
-class ContextCompactionFailed(RuntimeError):
+class ContextCompactionFailedError(RuntimeError):
     """Raised when a thread cannot be compacted."""
 
 
@@ -190,7 +189,7 @@ async def compact_thread_context(
     try:
         new_config = await checkpointer.aput(write_config, checkpoint, metadata, {})
     except Exception as exc:
-        raise ContextCompactionFailed(f"Failed to write compacted checkpoint: {exc}") from exc
+        raise ContextCompactionFailedError(f"Failed to write compacted checkpoint: {exc}") from exc
 
     new_checkpoint_id = None
     if isinstance(new_config, dict):
@@ -210,6 +209,6 @@ async def compact_thread_context(
 __all__ = [
     "ThreadCompactionResult",
     "compact_thread_context",
-    "ContextCompactionDisabled",
-    "ContextCompactionFailed",
+    "ContextCompactionDisabledError",
+    "ContextCompactionFailedError",
 ]

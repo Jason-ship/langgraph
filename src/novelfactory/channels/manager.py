@@ -22,9 +22,8 @@ from novelfactory.channels.message_bus import (
     InboundMessageType,
     MessageBus,
     OutboundMessage,
-    ResolvedAttachment,
 )
-from novelfactory.channels.run_policy import CHANNEL_RUN_POLICY, ChannelRunPolicy
+from novelfactory.channels.run_policy import CHANNEL_RUN_POLICY
 from novelfactory.channels.store import ChannelStore
 
 logger = logging.getLogger(__name__)
@@ -499,12 +498,10 @@ class ChannelManager:
             await self._send_error(msg, "Agent not available.")
             return
 
-        last_values: dict[str, Any] | None = None
         latest_text = ""
         last_published_text = ""
         last_published_len = 0
         last_publish_at = 0.0
-        stream_error: BaseException | None = None
 
         try:
             context = self._get_context(thread_id) if self._get_context else {"thread_id": thread_id, "user_id": msg.owner_user_id or msg.user_id}
@@ -521,8 +518,6 @@ class ChannelManager:
                     content = data.get("content", "")
                     if isinstance(content, str) and content:
                         latest_text = latest_text + content
-                elif event_kind == "values" and isinstance(data, dict):
-                    last_values = data
 
                 if not latest_text or latest_text == last_published_text:
                     continue
@@ -550,8 +545,7 @@ class ChannelManager:
                 last_published_text = latest_text
                 last_published_len = len(latest_text)
                 last_publish_at = now
-        except Exception as exc:
-            stream_error = exc
+        except Exception:
             logger.exception("[Manager] streaming error: thread_id=%s", thread_id)
 
         # Final outbound
