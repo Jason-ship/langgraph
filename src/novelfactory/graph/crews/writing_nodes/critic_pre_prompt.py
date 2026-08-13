@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-
 CRITIC_PRE_ASSESSMENT_PROMPT = """\
 你是 CriticReviewer（评论员），在写正文前评估章节大纲的合理性。
 

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from novelfactory.agents.infra import get_logger, async_llm_call_with_retry
+from novelfactory.agents.infra import async_llm_call_with_retry, get_logger
 from novelfactory.evaluation.utils import parse_markdown_sections
 from novelfactory.graph.crews.writing_nodes.critic_pre_prompt import (
     CRITIC_PRE_ASSESSMENT_PROMPT,

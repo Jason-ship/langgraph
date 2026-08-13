@@ -200,13 +200,17 @@ async def _chapter_refiner_node(state: BaseCrewState) -> dict[str, Any]:
     }
     # v6.2 FIX: crew_result._refine_count — 以 crew_result 为权威来源
     # 避免顶层 refine_attempts 字段在子图状态传播中丢失计数。
+    # v8.1-fix: 计数统一由 coordinator(verdict_engine_node) REFINE 分支递增，
+    # refiner 只透传对齐（max），避免与 coordinator 双递增或子图传播丢失。
     prev_count = cr.get("_refine_count", 0)
+    top_refine = int(state.get("refine_attempts", 0))
+    effective_refine = max(top_refine, prev_count)
     return {
         "crew_result": {
             **cr,
             "refined_chapter": refined_chapter,
             "chapter_draft": refined_chapter,
-            "_refine_count": prev_count + 1,
+            "_refine_count": effective_refine,
             "total_usage": {
                 "chapter_usages": [chapter_record_refine],
                 "prompt_tokens": chapter_usage_so_far.get("prompt_tokens", 0),
@@ -220,7 +224,8 @@ async def _chapter_refiner_node(state: BaseCrewState) -> dict[str, Any]:
         },
         "chapter_draft": refined_chapter,  # Top-level for reducer
         "quality_score": 0.0,
-        "refine_attempts": int(state.get("refine_attempts", 0)) + 1,  # type: ignore[call-overload]
+        # v8.1-fix: 透传 coordinator 维护的计数（不再自行 +1，避免双递增）
+        "refine_attempts": effective_refine,  # type: ignore[call-overload]
         "human_guidance": state.get("human_guidance", ""),  # persist across nodes
         # v6.1: 不再需要重置 composite_score（已移除）
         "ai_style_score": 0.0,
