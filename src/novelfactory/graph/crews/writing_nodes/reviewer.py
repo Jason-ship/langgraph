@@ -15,7 +15,10 @@ from __future__ import annotations
 from typing import Any
 
 from novelfactory.agents.infra import get_crew_stream, get_logger, read_usage_tracking
-from novelfactory.agents.writing_agents import create_chapter_refiner_agent
+from novelfactory.agents.writing_agents import (
+    create_chapter_full_refiner_agent,
+    create_chapter_refiner_agent,
+)
 from novelfactory.config.llm import get_worker_llm
 from novelfactory.evaluation.utils import normalize_paragraph_refs
 from novelfactory.state.crew_state import BaseCrewState
@@ -31,6 +34,9 @@ async def _chapter_refiner_node(state: BaseCrewState) -> dict[str, Any]:
 
     v7.0: 定向段落修复 — 从 unified verdict_result 读取反馈，
           refiner agent 只输出需要修改的段落，程序化合并回原文。
+    v9.1: 两级 REFINE 策略升级 —
+          refine_attempts == 0 → 段落级修复（点修复，保留新版优势）
+          refine_attempts >= 1 → 整章润色兜底（面修复，段落修复不足时升级）
     """
     cr: dict[str, Any] = state.get("crew_result", {})
     current_ch: int = int(  # type: ignore[call-overload]
@@ -41,6 +47,16 @@ async def _chapter_refiner_node(state: BaseCrewState) -> dict[str, Any]:
         state.get("chapter_draft", "") or cr.get("chapter_draft", "") or ""  # type: ignore[assignment]
     )
     review_result: Any = cr.get("review_result", {})
+
+    # ── v9.1: REFINE 轮次判定（两级策略升级）───────────────────────────
+    # coordinator 已回退 _refine_count，此处防御性再回退一次（子图状态合并丢字段时）。
+    refine_attempts = int(  # type: ignore[call-overload]
+        state.get("refine_attempts", 0)
+    )
+    if refine_attempts == 0 and cr.get("_refine_count", 0) > 0:
+        refine_attempts = int(cr["_refine_count"])
+    # 0=段落修复, >=1=整章润色兜底
+    use_full_refiner = refine_attempts >= 1
 
     # ── Read feedback from unified verdict_result ─────────────────────────
     # feedback is the VerdictResult.feedback (FeedbackBundle) dict
@@ -64,7 +80,8 @@ async def _chapter_refiner_node(state: BaseCrewState) -> dict[str, Any]:
 
     sw = get_crew_stream("writing", prefix)
     if sw:
-        sw.write(f"\n[chapter_refiner] 开始定向修复第{current_ch}章...\n")
+        mode = "整章润色兜底" if use_full_refiner else "定向段落修复"
+        sw.write(f"\n[chapter_refiner] 第{current_ch}章开始{mode}（第{refine_attempts + 1}轮）...\n")
         ai_fix = _fb("ai_style_fix", "")
         if ai_fix and ai_fix not in ("AI味指数合格，无需特别修改。", ""):
             sw.write(f"[AI味] {ai_fix[:200]}...\n")
@@ -128,7 +145,12 @@ async def _chapter_refiner_node(state: BaseCrewState) -> dict[str, Any]:
         }
     }
 
-    refiner_agent = create_chapter_refiner_agent(get_worker_llm())
+    # v9.1: 两级 REFINE 策略 — 0=段落修复(点修复)，>=1=整章润色兜底(面修复)
+    refiner_agent = (
+        create_chapter_full_refiner_agent(get_worker_llm())
+        if use_full_refiner
+        else create_chapter_refiner_agent(get_worker_llm())
+    )
 
     # v7.8-fix: 短文本自动重试 — 和 chapter_writer 同样的重试保护。
     # 最多重试 2 次（共 3 次尝试），每次注入更强的"必须完整输出"指令。
@@ -163,7 +185,7 @@ async def _chapter_refiner_node(state: BaseCrewState) -> dict[str, Any]:
             f"包含修改后的段落。这是第{attempt + 1}次尝试，请认真完成。"
         )
         refiner_input["crew_result"]["chapter_draft"] = (
-            refiner_input["crew_result"].get("chapter_draft", "") + hint
+            refiner_input["crew_result"].get("chapter_draft", "") + hint  # type: ignore[operator]
         )
 
     # 重试后仍为空 → 安全 fallback 原文
@@ -220,7 +242,9 @@ async def _chapter_refiner_node(state: BaseCrewState) -> dict[str, Any]:
         },
         "chapter_draft": refined_chapter,  # Top-level for reducer
         "quality_score": 0.0,
-        "refine_attempts": int(state.get("refine_attempts", 0)) + 1,  # type: ignore[call-overload]
+        # v9.1: 用回退后的 refine_attempts 递增，确保 coordinator/verdict
+        # 看到的轮次与 agent 选择一致（0→段落修复, 1→整章润色）。
+        "refine_attempts": refine_attempts + 1,
         "human_guidance": state.get("human_guidance", ""),  # persist across nodes
         # v6.1: 不再需要重置 composite_score（已移除）
         "ai_style_score": 0.0,

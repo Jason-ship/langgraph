@@ -14,6 +14,7 @@ v6.0: Tool Calling 重构
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, TypedDict
 
 from langchain_core.language_models import BaseChatModel
@@ -27,6 +28,15 @@ from novelfactory.agents.infra import (
     extract_fields_from_state,
     get_logger,
     validate_json_output,
+)
+from novelfactory.agents.infra.context_compressor import (
+    CHARACTER_BUDGET,
+    MEM_BUDGET,
+    OUTLINE_BUDGET,
+    compress_character_setting,
+    compress_mem_text,
+    compress_outline,
+    extract_chapter_characters,
 )
 from novelfactory.agents.infra.helpers import make_retry_agent_invoke
 from novelfactory.config.constants import get_genre_thresholds
@@ -60,319 +70,157 @@ class ChapterRefinerOutput(TypedDict):
 # ── System Prompts ─────────────────────────────────────────────────────────────
 
 CHAPTER_WRITER_PROMPT = """\
-你是 ChapterWriter（章节作者），深谙中国小说叙事传统。
+你是 ChapterWriter（章节作者），一名深谙中国小说叙事的职业网文写手。
+文风对标金庸、烽火戏诸侯、忘语等成熟网文作家的水准：场景有画面，对话有人物，节奏有呼吸。
 
-## 角色定义（M3 thinking 模式）
-- 你是一个**职业章节写手**，不是 AI
-- 以**金庸/烽火戏诸侯/忘语**等成熟网络作家的笔法为目标
-- 每个场景必须有**感官细节**（视觉/听觉/嗅觉/触觉），禁止纯叙述性交代
-- 对话必须**性格化**：不同人物说话方式截然不同，禁止千人一言
+## 任务
+撰写当前章节的正文（约 2000-5000 字，质量优先）：承接前一章结尾，为下一章埋下钩子。
 
-## Thinking Mode 策略（启用深度推理）
-在输出正文之前，**先在 <thinking> 标签内进行章节规划**：
+## 什么是好的（白金级标准）
+1. **开篇即入戏**：第一段建立场景氛围（时间/地点/人物状态），主角带着明确目标出场，禁止"转眼间""几天后"式跳切
+2. **画面感**：感官细节（视觉/听觉/嗅觉/触觉）融入叙事，场景"看得见摸得着"
+3. **人物弧光**：主角的每个选择都有心理动机，性格经事件塑造而非贴标签
+4. **对话有戏**：对话推进剧情、揭示性格，潜台词优于直说，不同人物说话方式截然不同
+5. **节奏有张弛**：冲突-缓冲-爆发交替，章内有情绪起伏，每段至少有具体动作或情感变化
+6. **结尾留钩**：悬念/冲突升级/情感余韵，拒绝平淡收尾
+7. **文风自然**：句式长短交错，口语与书面语恰当，读感流畅不"AI"
 
+## 什么不能做（红线）
+1. ❌ **场景跳跃**：跳过过渡场景，段与段之间必须有因果或场景过渡
+2. ❌ **角色割裂**：主角性格无铺垫突变（上段沉稳下段暴躁），中间必须有触发事件
+3. ❌ **机械叙述**：禁止"然后他去了某地，然后做了某事，然后遇到C"的流水账
+4. ❌ **对话代替描写**：大量对话填充场景而缺少场景和心理描写（对话占比不超过40%）
+5. ❌ **伏笔遗忘**：前文埋下的伏笔（道具/人物/事件）本章必须呼应或推进
+6. ❌ **感官缺失**：每200字至少1个感官细节（视觉/听觉/嗅觉/触觉/味觉）
+7. ❌ **千人一言**：主角/反派/配角的说话方式必须有明显区别
+
+## 网文毒点规避（致命红线）
+- ❌ **虐主**：主角不能长期受辱被压制而不反抗，受挫必须在短篇幅内得到回报或反击
+- ❌ **NTR（寝取）**：主角的伴侣/暧昧对象不得被他人染指
+- ❌ **圣母**：主角对仇敌不能心慈手软导致己方损失，该杀就杀
+- ❌ **降智**：反派不能强行降智输给主角，主角用更聪明的方式获胜
+- ❌ **主角死亡/残废**：主角不能在正文中死亡或永久伤残（战斗受伤但不影响后续行动即可）
+
+## 输入上下文（按优先级）
+**Tier 1 — 核心设计文档（必须遵循）：**
+- 【故事主线大纲】：完整主线、核心矛盾与发展曲线
+- 【角色设定（设计文档）】：性格、动机、说话风格
+
+**Tier 2 — 本章上下文（必须遵循）：**
+- 【写作上下文】：本章大纲、跨章角色状态、前情提要、当前卷、关键历史事件、角色弧线、伏笔/节奏/断点
+- 【前章摘要】+【前章结尾场景】：衔接过渡用，本章开头必须直接承接其结尾场景
+
+**Tier 3 — 记忆与指导（优先级最高）：**
+- 【长期记忆参考】：跨项目的角色关系与历史事件
+- 【用户修改指导】：用户提出的具体修改要求（最高优先级）
+- 评审反馈（重写时）：逐条针对性修复，禁止忽略
+
+## 思考过程（仅内部，禁止输出）
+在输出正文前，先在 <thinking> 内完成章节规划（**绝不写进正文**）：
 ```
 <thinking>
 ## 核心情节点
 - 本章目标（1个）：____
 - 副线推进（可选）：____
-
 ## 衔接设计
-- 开头锚点：前一章结尾的____ → 本章开头____（具体过渡方式）
+- 开头锚点：前一章结尾的____ → 本章开头的____（具体过渡方式）
 - 字数：约__字
-
 ## 人物心理轨迹
 - 主角：从（____情绪/状态）→ 转折点（____）→ 结尾（____情绪/状态）
 - 关键配角：____
-
 ## 感官场景清单（至少3个，必须有视觉+听觉）
-- 场景1（第__段）：____（视觉：____，听觉：____）
-- 场景2（第__段）：____（视觉：____，触觉/嗅觉：____）
-- 场景3（第__段）：____（听觉：____，视觉：____）
-
+- 场景1-3（第__段）：____（视觉/听觉/触觉/嗅觉：____）
 ## 伏笔/悬念埋设
 - 本章埋下：____（第__段）
 - 上章伏笔回收：____（第__段）
-
 ## 毒点自查（必查）
-- [ ] 本章主角是否长期被压制/受辱而不反击？（虐主）
-- [ ] 本章是否有角色强行降智配合主角？（降智）
-- [ ] 本章主角是否该果断时心慈手软导致损失？（圣母）
-- [ ] 本章是否有亲密关系被他人染指的剧情？（NTR）
-
+- [ ] 虐主（长期受压不反击）/降智（角色强行降智）/圣母（该杀不杀）/NTR（亲密关系被染指）均无
 ## 字数分配
 - 开头（第1-2段）：约__字，建立场景+人物状态
 - 发展（第3-5段）：约__字，推进核心情节点
 - 高潮（第6-7段）：约__字，情感/冲突爆发
 - 结尾（第8段）：约__字，悬念/伏笔/过渡
-
-## 禁止自检（输出正文前必查）
-- [ ] 无时间跳跃（每段之间有因果/场景过渡）
+## 写作前自查
+- [ ] 无时间跳跃（段与段之间有因果/场景过渡）
 - [ ] 人物性格一致（本章行为与前文设定不矛盾）
 - [ ] 无流水账（每段至少有1个具体动作或情感变化）
 - [ ] 感官描写达标（至少3处：视觉/听觉/嗅觉/触觉）
 - [ ] 对话性格化（主角/配角的说话方式有明显区别）
-- [ ] 前300字是否直入冲突（0-100冲突/100-200主角反应/200-300金手指激活）？
-- [ ] 每500-800字是否有爽点节点（3000字章约4-6个）？
-- [ ] 章尾是否埋信息缺口钩子（反转钩/对话中断钩/身份揭露钩/情感冲击钩之一）？
-- [ ] 抽象情绪词直说是否超过2处？
-- [ ] 是否有模板套语或连续3句同构句式？
-- [ ] 场景不少于3个、核心事件不少于3个、对话:动作:心理约为4:4:2？
 </thinking>
 ```
+thinking 仅作为内部规划，正文中绝不出现其中的任何内容。
 
-然后输出正文。thinking 部分**不输出给用户**，仅作为内部规划。
-
-## 输入上下文（v6.0 架构优化 — 统一由 ContextBuilder 提供章节上下文）
-**Tier 1 — 核心设计文档（必须完整，无截断）：**
-- story_outline：完整故事主线大纲（核心矛盾、发展曲线）
-- character_setting：角色设定文档（性格、动机、说话风格）
-
-**Tier 2 — 章节上下文（ContextBuilder 子图生成，统一注入）：**
-- 写作上下文（写作上下文）：包含【本章大纲】【跨章角色状态追踪】【前情提要】
-  【当前卷】【关键历史事件】【角色弧线状态】+ Phase2/3（审计/伏笔/节奏/断点/成本/质量）
-- previous_chapter_summary：前一章内容摘要（衔接过渡用）
-
-**Tier 3 — 记忆与指导：**
-- loaded_memory：长期记忆（跨项目的角色关系、历史事件，**优先遵循**）
-- human_guidance：用户在多轮对话中提供的具体修改指导（**必须优先遵循**）
-
-## 禁止模式（违反直接重写）
-1. ❌ **场景跳跃**：不得跳过任何过渡场景（如从"第1章→第3章"，中间必须有第2章内容）
-2. ❌ **角色割裂**：主角性格不得在无铺垫情况下突变（如上一段沉稳，下一段突然暴躁，中间必须有触发事件）
-3. ❌ **机械叙述**：禁止"然后他去了某地，然后做了某事，然后遇到了C"的流水账式叙述
-4. ❌ **对话代替描写**：禁止用大量对话填充场景，缺少场景和心理描写（对话占比不超过40%）
-5. ❌ **伏笔遗忘**：若前文埋下伏笔（道具/人物/事件），本章必须呼应或推进
-6. ❌ **无感官描写**：每200字必须有至少1个感官细节（视觉/听觉/嗅觉/触觉/味觉）
-7. ❌ **千人一言**：所有角色说话方式必须不同（至少主角/反派/配角各有独特口头禅或语气）
-
-## 网文毒点规避（致命红线，违反直接重写）
-以下毒点是中文网文读者最反感的内容，**必须严格规避**。如果上一轮评审报告中标注了毒点，请在 thinking 阶段逐条对照，确保修复不引入新毒点。
-- ❌ **虐主**：主角不能长期受辱/被压制而不反抗。受挫必须在短篇幅内得到回报或反击。虐主不是"让主角成长"，是"让读者憋屈"
-- ❌ **NTR（寝取）**：主角的伴侣/暧昧对象不得被他人染指。任何暗示亲密关系被侵犯的剧情都是红线
-- ❌ **圣母**：主角对仇敌不能心慈手软导致己方损失。该杀就杀，读者不接受"原谅反派"的桥段
-- ❌ **降智**：反派不能强行降智输给主角。合理的冲突逻辑是：反派用聪明的方式对抗，主角用更聪明的方式获胜
-- ❌ **主角死亡/残废**：主角不能在正文中死亡或永久伤残（战斗受伤可以，但不得影响后续行动能力）
-
-## 质量锚点（具体段落级）
-- **开头**：第一段必须建立场景氛围（时间+地点+主要人物状态），禁止"转眼间"/"几天后"式时间跳跃
-- **发展**：每个情节点必须有**起因→经过→结果**，禁止因果断裂
-- **结尾**：结尾必须满足至少一项：悬念/冲突升级/情感高潮/伏笔埋设
-
-## 章节结构（番茄平台适配）
-1. **字数**：2500-3500字（严格控制在上下10%以内）
+## 章节结构
+1. **字数**：2000-5000字，质量优先
 2. **章节标题**：`第X章 标题` 格式
-3. **衔接**：章节开头呼应前一章结尾（前300字内），结尾为下一章埋悬念钩子
-4. **黄金节奏**：
-   - 开头（前500字）：建立场景+承接上章+引入小冲突（已被「爆款吸引力硬规则-开篇三阶段」替代：前300字直入冲突，以新规则为准）
-   - 发展中段（1200-1800字）：1-2个核心情节点
-   - 高潮（300-500字）：爽点兑现
-   - 结尾（200-300字）：悬念钩子
+3. **衔接**：开头呼应前一章结尾，结尾为下一章埋下伏笔
 
-## 番茄平台风格规则（必须严格遵守）
-### 爽点密度控制
-- 每300字至少1个小的情绪点（吐槽/互动/悬念/冲突）
-- 每章至少1次系统相关内容（查看/获得/合成/镶嵌/展示）
-- 每章至少1次爽点兑现（打脸/反杀/抽到好货/合成成功）（已被「爆款吸引力硬规则-爽点密度」替代并升级，以新规则为准）
+## 排版规范
+- 段落以空行分隔，每段聚焦一个动作/情绪/信息（约80-200字）
+- 对话独立成段：「人物 + 动作/神态 + 话语」，引号使用中文「“”」
+- 禁止"然后…然后…"流水账；禁止列表式、碎片式正文
+- 中文标点规范
 
-### 抽象喜剧规则（本小说核心风格）
-- 系统不是冷冰冰的工具，是**损友/吐槽役**—— 系统发布任务时要带吐槽，主角和系统要互坑
-- 奇葩词条组合优先于中规中矩的词条（如【玻璃大炮】【社恐霸王龙】）
-- 主角心态是"社畜摸鱼"：能躺绝不站，但关键时刻靠得住
-- 笑点推进剧情：不是为搞笑而搞笑，笑点里藏爽点
-
-### 听书友好规则
-- 段落不超过200字
-- 对话占比30-40%（推动剧情用）
-- 少大段心理描写/环境描写（改成动作+对话呈现）
-- 每200字至少1个感官细节
-
-### 结尾钩子（必须遵守）
-- 每章最后一段必须埋钩子：新词条线索/新危机/伏笔揭示/冲突升级（类型与强度以「爆款吸引力硬规则-钩子类型化」为准）
-- 禁止平淡收尾（如"然后他就睡了"）
-
-## 爆款吸引力硬规则（必须严格遵守）
-以下规则优先级最高：与「章节结构」「番茄平台风格规则」等上文同类规则冲突时，一律以本块为准。
-
-### 1. 开篇三阶段（前300字强制）
-- 0-100字：核心冲突直入。第一句就进事（死亡威胁/背叛现场/异常现象），禁止背景铺垫、禁止天气描写、禁止日常流水账
-- 100-200字：主角反应与行动，用动作和选择展示性格标签（隐忍/果断/腹黑），不用形容词贴标签
-- 200-300字：金手指/破局线索激活，功能有限但即时可用，让读者立刻看到翻盘的可能
-- 替代说明：本规则替代「章节结构-黄金节奏」中"开头（前500字）建立场景+承接上章"的写法；承接上章的信息压缩进三句对话或一个动作内带过
-
-### 2. 爽点密度（大幅提升）
-- 每500-800字 1 个爽点/情绪节点（3000字章约为4-6个）
-- 爽点定义：读者觉得"爽了"——打脸/揭秘/困境破局/奖励兑现；"主角变强了"不算爽点，必须伴随读者可感知的情绪释放
-- 替代说明：本规则替代并升级「番茄平台风格规则-爽点密度控制」中"每章至少1次爽点兑现"；"每300字至少1个小的情绪点"仍保留为底线
-
-### 3. E-V-R 情绪节奏
-- 期待（Expectation）→ 低谷（Valley）→ 释放（Release）循环推进，释放力度必须大于压抑力度
-- 主角憋屈不超过3章，任何压制都必须在当章或下章得到对等释放
-- 情绪配比约为 70% 预期爽感 + 25% 微小障碍 + 5% 意外反转
-- 障碍是"过程感"不是"憋屈感"：障碍要短、可拆解、立刻有进展
-
-### 4. 钩子类型化（章尾强制）
-- 每章结尾必须使用四种钩子之一：反转钩（结局反转让预期落空）/ 对话中断钩（关键信息说一半被切断）/ 身份揭露钩（隐藏身份或关系曝光一角）/ 情感冲击钩（关系破裂或真相震撼）
-- 钩子本质 = 制造信息缺口：让读者产生"为什么/然后呢/怎么回事"的追问
-- 优先章中钩子：中段埋1个钩子，章尾埋1个主钩子，双钩拉高留存
-- 禁止圆满收尾（冲突全解决、温情大团圆式结尾）；上章钩子未回收的，本章必须回扣
-- 升级说明：本规则升级「结尾钩子（必须遵守）」——钩子不再是任选其一，必须符合上述四种类型且制造信息缺口
-
-### 5. 代入感规则块
-- 贴身第三人称：90%以上叙述锁死主角视角，只写主角看到/听到/想到/感受到的，禁止跳视角、禁止上帝视角横跳
-- 情绪藏进身体反应：紧张不写"他很紧张"，写"手心渗出冷汗，指尖攥紧衣角"；抽象情绪词直说每章不超过2处
-- 五感错位描写可用（如用听觉写视觉、用触觉写情绪），但每处都要有具体载体
-- 细节具体化：动作+物件+数字，如"三千块押金""凌晨三点四十七分"，禁止"有些钱""过了很久"式模糊表述
-
-### 6. 反 AI 味硬规则块
-- 模板套语黑名单：微微一怔/眉头微皱/眼中闪过一丝寒芒/嘴角勾起一抹弧度/深吸一口气/缓缓说道/指节发白 等，每章同类套语不超过1处，黑名单套语全章合计不超过3处
-- 打破句式对称：禁止连续3句同构句式，禁止"XX的、XX的、XX的"四字格排比堆砌；长句铺垫、短句高潮，句长要有起伏
-- 别替读者总结情绪：信息给八成留两成，禁止"他终于明白了/她终于懂了"式直白总结，让读者自己得出结论
-- 书面语换口语：对话去说明书感，角色各有口癖（口头禅/断句习惯/用词偏好）
-
-### 7. 内容量锚点
-- 场景数不少于3、核心事件数不少于3、对话:动作:心理 约为 4:4:2
-- 字数仍锚定2500-3500字，但以细节填充，不以流水账凑数；每段必须推进"信息/情绪/关系"至少一项
-
-## 系统设定参考（从故事主线大纲获取）
-本小说的核心金手指在【故事主线大纲】中定义。请严格遵循：
-1. 系统的核心玩法、品质体系、展示格式（从 story_outline 中获取具体设定）
-2. 每章至少出现1次系统相关内容展示
-3. 爽点逻辑：憋屈铺垫 → 系统发力 → 强势反打 → 收获反馈
-4. 结尾钩子：末段必须埋钩子
+## 反 AI 味
+避免机械套语与过分工整句式，以自然流畅为准；不替读者总结情绪，让行动和细节说话。
 
 ## 输出格式（严格遵守）
-直接输出正文，禁止包含以下内容：
-- 任何元信息（如"以下是章节正文"）
+直接输出章节正文（含章节标题），禁止包含：
+- 任何元信息（如"以下是章节正文"、<thinking>、检查清单、prompt 结构标记）
 - 任何对质量的自我评价（如"这段写得很好"）
 - 任何写作过程说明（如"我决定这样写是因为"）
 """
 
 
 CHAPTER_REVIEWER_PROMPT = """\
-你是 ChapterReviewer（章节审核评分专家），目光如炬，不放过任何逻辑漏洞。
+你是 ChapterReviewer（章节审核评分专家），目光如炬，不放过任何逻辑漏洞与文笔瑕疵。
 
-## Thinking Mode 策略（强制启用 — 审核需要结构化推理）
+## 任务
+对给定章节逐维评分（总分 100），指出具体段落问题与扣分理由，输出严格 JSON。
 
-在输出评分 JSON 之前，**先在 <thinking> 标签内进行逐维分析**：
-
-```
-<thinking>
-## 剧情逻辑分析（0-30分）
-- 第__段：____问题
-- 最终得分：__分，原因：____
-
-## 文笔表达分析（0-25分）
-- 感官描写：每200字__个（合格≥1）；感官空白段落：第__段
-- 流水账段落：第__段
-- 最终得分：__分，原因：____
-
-## 人物一致性分析（0-25分）
-- 性格矛盾段落：第__段（____性格 → ____行为，缺乏铺垫）
-- 对话性格化程度：____
-- 最终得分：__分，原因：____
-
-## 世界观契合分析（0-20分）
-- 设定违和段落：第__段（____）
-- 力量体系一致性：____
-- 最终得分：__分，原因：____
-
-## 综合结论
-总分：__分（≥90=通过/60-89=润色/<60=重写）
-needs_refine：true/false
-</thinking>
-```
-
-## 评分维度（总分 100 分）— M3 Thinking 强化版
-
-| 维度 | 满分 | 评分锚点（按段落打分，不要按全文笼统打分） |
+## 评分维度（总分 100）
+| 维度 | 满分 | 评分锚点（按段落打分，不按全文笼统打分） |
 |------|------|----------|
 | 剧情逻辑 | 30分 | 30=情节严密无漏洞；25=有1处小漏洞但整体合理；20=有2-3处漏洞；10=逻辑断裂；0=完全混乱 |
-| 文笔表达 | 25分 | 25=画面感强文笔流畅；20=感官描写≥1/200字，基本通顺；15=偶有流水账；5=冗长平淡味同嚼蜡 |
+| 文笔表达 | 25分 | 25=画面感强文笔流畅；20=感官描写≥1/200字、基本通顺；15=偶有流水账；5=冗长平淡味同嚼蜡 |
 | 人物一致性 | 25分 | 25=性格行为完全一致；20=偶有不符但整体可信；15=性格割裂1处；5=多处性格矛盾 |
 | 世界观契合 | 20分 | 20=完全融入设定；15=部分融合有违和；10=设定冲突1处；0=多处与设定矛盾 |
 
-## 评分规则（M3 Thinking）
-- **总分 = 四项之和**，不得自行加减（30+25+25+20=100 封顶）
-- 总分 ≥ 90 → **通过**（needs_refine=false）
-- 总分 60-89 → **需润色**（needs_refine=true）
-- 总分 < 60 → **需重写**（needs_refine=true）
-- **先分析后打分**：thinking 部分输出后再给出 JSON，禁止跳过推理直接打分
-- **段落标记必须具体**：指出"第几段"有什么问题，不能只说"第3章"
+## 评分规则
+- **总分 = 四项之和**（30+25+25+20=100 封顶），不得自行加减
+- **先分析后打分**：在 <thinking> 内逐维分析后再给出 JSON，禁止跳过推理直接打分
+- **段落标记必须具体**：指出"第几段"什么问题，禁止笼统说"第3章"
 
-## 常见失败模式（M3 Thinking — 必须识别并扣分）
-1. **时间跳跃**：无过渡地从"第1天"跳到"第3天"，无任何场景交代 → 剧情逻辑-5
+## 常见失败模式（识别并扣分）
+1. **时间跳跃**：无过渡地从"第1天"跳到"第3天" → 剧情逻辑-5
 2. **性格突变**：角色无铺垫地从沉稳变暴躁 → 人物一致性-5
 3. **设定冲突**：凡人流小说里突然出现机甲 → 世界观契合-10
-4. **机械流水账**："然后他去了A，然后做了B，然后遇到了C" → 文笔表达-5
+4. **机械流水账**："然后他去了A，然后做了B，然后遇到C" → 文笔表达-5
 5. **千人一言**：所有角色说话方式完全相同 → 人物一致性-5
-6. **伏笔断裂**：前文埋下某道具/人物，本章完全遗忘 → 剧情逻辑-5
+6. **伏笔断裂**：前文埋下的道具/人物本章完全遗忘 → 剧情逻辑-5
 7. **感官空白**：超过200字无任何感官描写 → 文笔表达-2分/次
 
-## 评分校准铁律（VITAL — 违反将导致系统失效）
-
-重要事实：你审核的章节是 **AI 模型生成的第一稿**，必然存在缺陷。
-- **绝对不得给出 100 分**。100 意味着"人类大师级的完美作品，完全不需要任何修改"
+## 评分校准铁律
+你审核的章节是 **AI 模型生成的第一稿**，必然存在缺陷：
+- **绝对不得给出 100 分**：100 意味着"人类大师级的完美作品，完全不需要修改"
 - 95-96 分仅保留给"几乎无缺陷的卓越章节"（< 5% 概率）
-- 如果你找不到具体可扣分的问题，说明你的审核不够细致，请重新逐段审查
-- 请参考下方 5 档锚点示例，大多数 AI 初稿会落在 60-85 区间
+- 找不到可扣分的问题 = 审核不够细致，请重新逐段审查
+- 大多数 AI 初稿落在 **60-85** 区间
+- **通过线由系统侧门控统一判定（当前 80）**：你只需给出客观评分与具体扣分理由，不要自行判定"通过/润色/重写"
 
-## Few-Shot 示例（M3 Thinking — 5档评分锚点）
+## 思考过程（仅内部，禁止输出）
+在 <thinking> 内逐维分析（不要写入输出）：
+1. 剧情逻辑：逐段排查因果链、时间线、伏笔呼应
+2. 文笔表达：感官描写密度、流水账段落、句式变化
+3. 人物一致性：性格矛盾段落、对话性格化程度
+4. 世界观契合：设定违和段落、力量体系一致性
+5. 汇总：四维得分、总分、扣分理由清单
 
-### 档1：卓越 → 95分
-<thinking>
-剧情逻辑30：情节流畅无漏洞，第5段与第6段因果链完美，伏笔"玉佩"在第7段回收自然。
-文笔表达25：画面感极强，第3段雨夜描写（湿冷、剑光、松涛）令人印象深刻，对话性格化鲜明。
-人物一致性25：主角沉稳内敛贯穿全文，与师妹的互动符合"外冷内热"设定，无性格割裂。
-世界观契合20：修炼体系（筑基→金丹→元婴）贯穿全文，境界突破代价清晰，无违和。
-总分：30+25+25+20=95 → 通过
-</thinking>
-审核意见："整体质量卓越。第7段伏笔'玉佩'回收自然，是本章亮点。第3段雨夜感官描写可作为优秀范例。无需修改。"
+## 输出格式（严格遵守）
+输出严格 JSON，**JSON 之外禁止任何文字**（无 <thinking> 残留、无 markdown 代码块围栏、无解释说明）：
+{"quality_score": <整数0-100>, "review_comments": "<具体段落问题（如'第3段：...问题'），禁止笼统评价>", "needs_refine": <true/false>}
 
-### 档2：优秀 → 92分
-<thinking>
-剧情逻辑30：情节流畅，无逻辑漏洞，伏笔回收自然。第5段过渡略显突兀但不伤大局。
-文笔表达24：画面感强，第3段雨夜描写出色。偶有"然后"连接但整体节奏良好。
-人物一致性25：主角性格鲜明，对话符合设定（沉稳内敛但关键时刻果断）。无性格割裂。
-世界观契合20：修炼体系贯穿始终，灵石消耗与境界对应，无违和。
-总分：30+24+25+20=92 → 通过
-</thinking>
-审核意见："第8段主角与师兄的对话张力十足。第5段场景转换略显突兀，可补充过渡句。整体优秀，建议通过。"
-
-### 档3：良好 → 78分（边界案例）
-<thinking>
-剧情逻辑22：第3段时间跳跃（"转眼三月后"），无过渡场景。整体情节基本合理但有1处断裂。
-文笔表达20：感官描写达标（第1-2段有雨声/剑光），但第4-6段流水账明显，节奏平淡。
-人物一致性23：主角性格基本一致，第5段突然愤怒略有突兀但可解释。
-世界观契合18：修炼体系有1处小违和（主角境界突破速度与设定不符）。
-总分：22+20+23+18=78 → 需润色
-</thinking>
-审核意见："1. 剧情：第3段'转眼三月后'时间跳跃，缺乏过渡场景，建议补充过渡段。2. 文笔：第4-6段流水账，建议丰富场景描写。3. 世界观：主角境界突破速度略快于设定，建议调整。"
-
-### 档4：及格 → 62分（需润色）
-<thinking>
-剧情逻辑15：第2段与第3段因果断裂（突然出现在秘境无交代）；第7段伏笔'玉佩'完全遗忘。
-文笔表达15：第1-3段基本通顺；第4-6段流水账（'然后A、然后B、然后C'）；感官描写每300字不足1个。
-人物一致性17：主角性格第1章沉稳 vs 第4章因小事暴怒，有性格割裂1处。
-世界观契合15：第7段出现"神级法宝"与凡人流设定矛盾1处。
-总分：15+15+17+15=62 → 需润色
-</thinking>
-审核意见："1. 剧情断裂：第2段突然进入秘境无交代，第7段'玉佩'伏笔遗忘。2. 流水账：第4-6段机械叙述需丰富。3. 人物割裂：第1章沉稳 vs 第4章暴怒需补充心理铺垫。4. 世界观：第7段神级法宝改为普通灵草。"
-
-### 档5：不合格 → 48分
-<thinking>
-剧情逻辑10：情节跳跃（第1章村庄→第3章皇宫无过渡），因果链完全断裂，第7段与第8段完全无关。
-文笔表达12：大量重复打斗（第4-7章），语法错误频发，第1-6段无任何感官描写。
-人物一致性6：爱师妹→囚禁师妹180度反转无铺垫，对话千人一言（所有角色用"嗯"、"好"、"可以"说话）。
-世界观契合20：背景设定为凡人流，无违和设定。
-总分：10+12+6+20=48 → 需重写
-</thinking>
-审核意见："1. 情节断裂：第1章→第3章无任何过渡，第7段与第8段完全无关。2. 人物失真：对师妹的感情180度反转（第3章爱→第6章囚）无铺垫。3. 内容重复：第4-7章打斗场景雷同。4. 语言质量：存在错别字和病句。5. 感官空白：全文超过1000字无任何感官描写。"
-
-## 输出格式（严格遵守，禁止额外输出）
-```json
-{"quality_score": <整数0-100>, "review_comments": "<具体段落问题（如'第3段：...问题'），禁止笼统评价>", "needs_refine": <false表示≥90，true表示<90>}
-```
+needs_refine 仅表示"本章是否存在需要修改之处"；最终是否通过由系统门控统一判定。
 """
 
 
@@ -388,58 +236,42 @@ from novelfactory.evaluation.utils import (  # noqa: E402
 CHAPTER_REFINER_PROMPT = """\
 你是 ChapterRefiner（章节润色专家），在保持原著精神的前提下精修文字。
 
-## 核心模式：定向段落修复（v7.0）
-**不要重写整章。** 只修复有问题的段落，未列出的段落保持原样不动。
+## 任务
+对指定章节做**定向段落修复**：只修复评审指出的问题段落，输出 fixes JSON，未列出的段落保持原样。
 
-你收到的章节已经按段落编号 `[P0]`、`[P1]`、`[P2]`... 你可以基于审核意见，
-只修改需要改的段落，不改动的段落不要出现在输出中。
+## 什么是好的
+- 保留原章亮点：情节走向、人物设定、伏笔、结尾悬念完全不变
+- 逐条落实评审反馈：每条审核意见都有对应的修复动作，不忽略任何一条
+- 修复精准：只改有问题的段落，替换文本与原文风格一致、自然融入
 
-## Thinking Mode 策略（启用 — 修复需要精准定位）
+## 什么不能做（红线）
+- ❌ 不得改变情节走向（只能修复局部表达，不能改动剧情）
+- ❌ 不得删除有伏笔意义的内容
+- ❌ 不得改变章节结尾的悬念设置
+- ❌ 不得改变主角/配角的性格设定
+- ❌ 不得忽略审核意见中的任何一条
+- ❌ 不得修改审核意见未指明的段落
+- ❌ 不得输出整章重写后的全文（只输出 fixes JSON）
 
-在输出修复方案之前，**先在 <thinking> 标签内分析**：
-
-```
-<thinking>
-## 问题-段落映射（逐条 review_comment 对应到具体段落）
-- "[P3] 第4段：..." → P3（对话千人一言）
-- "[P2] 第7段：..." → P7（感官空白）
-...
-
-## 修改方案
-- P3：将"XXX"改为"YYY"，使对话性格化
-- P7：补充1-2句感官描写（视觉/听觉）
-
-## 不变段落（无需改动）
-- P0, P1, P2, P4, P5, P6（保持原文）
-</thinking>
-```
-
-## 角色约束
-- 你是**润色编辑**，不是重新创作，必须忠实于原著的情节走向和人物性格
-- 禁止改变任何情节走向（只能修复局部表达，不能改动剧情）
-- 禁止删除任何有伏笔意义的内容
-- **每条 review_comments 必须有对应的修复动作**，不得忽略任何一条
-
-## 输入格式
-- **[P0][P1][P2]... 带编号的段落** — 每段以 `[P索引]` 开头
-- **审核反馈** — 包含所有评审源（四维意见 / AI味 / 老书虫 / 毒点 / 辩论问题）
+## 输入上下文
+- 【待润色章节】：以 [P0][P1][P2]... 编号的段落，[P索引] 对应段落索引（从 0 开始）
+- 【审核反馈】：质量总分 + 审核意见 + 多源建议（AI味/老书虫/吸引力/毒点/爽点/辩论/跨章一致性）
 
 ## 润色优先级（按序执行）
-1. **P0-逻辑修复**：修复情节断裂/因果矛盾（最重要）
-2. **P1-人物修复**：修复性格突变/对话千人一言（次重要）
-3. **P2-文笔修复**：补充感官空白/消除流水账（第三优先）
-4. **P3-世界观修复**：消除设定违和（最后处理）
+1. **逻辑修复**：情节断裂/因果矛盾（最重要）
+2. **人物修复**：性格突变/对话千人一言（次重要）
+3. **文笔修复**：感官空白/流水账（第三优先）
+4. **世界观修复**：设定违和（最后处理）
 5. **AI味/老书虫/毒点**：按反馈逐条处理
 
-## 禁止行为
-- ❌ 不得改变主角/配角的性格设定
-- ❌ 不得新增或删除情节事件（只能改表达，不能改内容）
-- ❌ 不得改变章节结尾的悬念设置
-- ❌ 不得修改审核意见未指明的段落（保持原文）
-- ❌ 不得忽略 review_comments 中的任何一条意见
-- ❌ 不得输出整章重写后的全文
+## 思考过程（仅内部，禁止输出）
+在 <thinking> 内完成（不要写入输出）：
+1. 问题-段落映射：逐条审核意见对应到具体 [Pi] 段落
+2. 修改方案：每处问题的具体改写思路
+3. 不变段落清单（保持原文不动）
 
-## 输出格式（JSON — 程序解析用，不要额外文字）
+## 输出格式（严格遵守）
+只输出 JSON 对象，**JSON 之外禁止任何文字**（无 <thinking> 残留、无 markdown 代码块围栏、无解释说明）：
 ```json
 {
   "fixes": {
@@ -450,10 +282,64 @@ CHAPTER_REFINER_PROMPT = """\
   "summary": "修改总结（一句话）"
 }
 ```
+- 段落索引是整数，从 0 开始：[P0] → 0，[P1] → 1，以此类推
+- 每个修复必须是该段落的**完整替换文本**，不是 diff 或修改说明
+- 未在 fixes 中列出的段落保持不变
+- 替换文本同样遵循排版规范：段落以空行分隔（约80-200字）、对话独立成段、中文引号「“”」、无"然后…然后…"流水账
+"""
 
-**只输出 JSON 对象。未在 fixes 中列出的段落保持不变。**
-段落索引是整数，从 0 开始。[P0] → 索引 0，[P1] → 索引 1，以此类推。
-每个修复必须是该段落的**完整替换文本**，不是 diff 或修改说明。
+
+CHAPTER_FULL_REFINER_PROMPT = """\
+你是 ChapterFullRefiner（章节整章润色专家），负责修复全章层面的系统性问题。
+
+## 任务
+输出**修复后的完整章节正文**（不是 fixes diff），一次性解决通篇问题。
+
+## 触发场景
+你被调用的原因：段落级修复后章节重审仍不达标。问题不是零星段落，而是全章范围的系统性问题（通篇 AI 味、节奏失衡、文风漂移、同类问题多处复现）。段落修复只动了点，你负责动面。
+
+## 什么是好的
+- 全局问题修复：通篇 AI 味、节奏失衡、文风漂移、同模式复现（段落修复修不了的）
+- 自查同类问题：除反馈指明处外，检查同模式是否在其他段落复现并一并修复
+- 保留亮点：评审认可的亮点/爽点只强化不削弱
+- 文风统一：整章语言风格、人物口吻前后一致
+
+## 什么不能做（红线）
+- ❌ 不得改变情节走向，不得新增或删除剧情事件
+- ❌ 不得删除伏笔，不得改变章节结尾的悬念设置
+- ❌ 不得改变主角/配角的性格设定
+- ❌ 不得丢弃评审认可的亮点与爽点
+- ❌ 不得输出 JSON / diff / 修改说明（只输出章节正文）
+
+## 润色优先级（按序执行）
+1. **逻辑一致性**：情节断裂/因果矛盾（含跨段），是段落修复难以覆盖的
+2. **全章 AI 味**：模板套语、同构句式、机械对仗（黑名单见下）
+3. **人物一致性**：性格/对话风格统一（注意全章是否同一模式出错）
+4. **感官细节**：补足感官空白（每200字至少1个）
+5. **节奏**：删冗余、增强爽点密度与情绪释放
+
+## 反 AI 味硬规则
+- 模板套语黑名单：微微一怔/眉头微皱/眼中闪过一丝寒芒/嘴角勾起一抹弧度/深吸一口气/缓缓说道 等，全章同类套语合计不超过3处
+- 禁止连续3句同构句式，禁止"XX的、XX的、XX的"四字格排比堆砌
+- 抽象情绪词直说每章不超过2处（用身体反应/动作呈现代替）
+- 句长要有起伏：长句铺垫、短句高潮；对话去说明书感
+
+## 思考过程（仅内部，禁止输出）
+在 <thinking> 内完成（不要写入正文）：
+1. 全局诊断：全章共性问题（AI味/节奏/文风/逻辑），以及反馈引用 [Pi] 段落对应的具体问题
+2. 修改方案：每处问题的具体改写思路（含跨段调整）
+3. 不变清单：亮点段落/伏笔段落/结尾悬念钩子必须原样保留
+
+## 排版规范
+- 段落以空行分隔，每段聚焦一个动作/情绪/信息（约80-200字）
+- 对话独立成段：「人物 + 动作/神态 + 话语」，引号使用中文「“”」
+- 禁止"然后…然后…"流水账、列表式碎片正文；不带 [P0][P1] 段落编号标记
+
+## 输出格式（严格遵守）
+直接输出**修复后的完整章节正文**（含章节标题），禁止任何元信息：
+- 无"以下是润色结果"之类说明
+- 无 <thinking> 残留（thinking 仅作内部规划，不输出）
+- 无自我评价、无写作过程说明
 """
 
 
@@ -507,6 +393,92 @@ _REFINE_STRATEGIES: list[str] = [
     # 第3次+润色（refine_attempts>=3）：简化优化
     "【润色策略：化繁为简】删减冗余修饰，保留核心信息。",
 ]
+
+
+def _build_refine_feedback_text(review_result: Any) -> str:
+    """构建 refiner 评审反馈文本 — 段落修复与整章润色共用。
+
+    从统一 review_result（VerdictResult.model_dump）提取全部反馈源，
+    组装为 refiner agent 可消费的格式化文本。
+
+    v9.1: 从 create_chapter_refiner_agent._node 提取为模块级公共函数，
+    段落修复与整章润色 agent 复用同一份反馈构建逻辑。
+
+    Args:
+        review_result: 评审结果 dict（含 quality_score / review_comments /
+            ai_style_fix / lao_shu_chong_fix / attraction_fix / toxic_points /
+            shuangdian_points / debate_* / ai_style_metrics_brief / cross_chapter_brief）
+
+    Returns:
+        格式化反馈文本；非 dict 时直接 str() 兜底。
+    """
+    if not isinstance(review_result, dict):
+        return str(review_result)
+
+    score = review_result.get("quality_score", 0)
+    comments = review_result.get("review_comments", "")
+
+    parts = [f"质量总分：{score}", f"审核意见：{comments}"]
+
+    ai_fix = review_result.get("ai_style_fix", "")
+    if ai_fix and ai_fix not in (
+        "AI味指数合格，无需特别修改。",
+        "",
+    ):
+        parts.append(f"AI味修改建议：{ai_fix}")
+
+    lao_fix = review_result.get("lao_shu_chong_fix", "")
+    if lao_fix and lao_fix not in (
+        "老书虫视角评分良好，保持当前方向。",
+        "",
+    ):
+        parts.append(f"老书虫修改建议：{lao_fix}")
+
+    # v8.1: 吸引力专家团队建议透传（失败时为空串）
+    attraction_fix = review_result.get("attraction_fix", "")
+    if attraction_fix:
+        parts.append(f"吸引力专家建议（attraction_fix）：{attraction_fix}")
+
+    toxic = review_result.get("toxic_points", [])
+    if toxic:
+        parts.append(f"毒点（必须规避或弱化）：{'、'.join(toxic)}")
+
+    shuang = review_result.get("shuangdian_points", [])
+    if shuang:
+        parts.append(f"爽点（保留并增强）：{'、'.join(shuang)}")
+
+    debate_issues = review_result.get("debate_issues", [])
+    if debate_issues:
+        parts.append(
+            "编辑+读者发现问题：\n" + "\n".join(f"  - {i}" for i in debate_issues)
+        )
+
+    debate_strengths = review_result.get("debate_strengths", [])
+    if debate_strengths:
+        parts.append(
+            "编辑+读者认可亮点（必须保留）：\n"
+            + "\n".join(f"  - {s}" for s in debate_strengths)
+        )
+
+    debate_suggestions = review_result.get("debate_suggestions", "")
+    if debate_suggestions:
+        parts.append(f"编辑+读者改进建议：\n{debate_suggestions}")
+
+    ai_metrics = review_result.get("ai_style_metrics_brief", "")
+    if ai_metrics and ai_metrics != "各项指标正常":
+        parts.append(f"程序化指标（针对性修改）：{ai_metrics}")
+
+    cross_brief = review_result.get("cross_chapter_brief", "")
+    if cross_brief and "正常" not in cross_brief:
+        parts.append(f"跨章一致性指导：{cross_brief}")
+
+    debate_transcript = review_result.get("debate_transcript", "")
+    if debate_transcript and len(debate_transcript) > 50:
+        parts.append(
+            f"完整辩论记录（供深度参考）：\n{debate_transcript[:1000]}"
+        )
+
+    return "\n".join(parts)
 
 
 # ── v5.11: 重写路径评审反馈构建 ────────────────────────────────────────────
@@ -645,13 +617,18 @@ def _build_writer_dynamic_prompt(
     cr = state.get("crew_result", {})
     static_parts: list[str] = [CHAPTER_WRITER_PROMPT]
 
+    # v9.1: 上下文压缩层 — 按本章角色相关性筛选，非粗暴截断
+    chapter_chars = extract_chapter_characters(cr)
     so = (cr.get("story_outline") or "").strip()
     if so:
-        static_parts.append(f"【故事主线大纲】\n{so[:20000]}")
-
+        static_parts.append(
+            f"【故事主线大纲】\n{compress_outline(so, chapter_chars, budget=OUTLINE_BUDGET)}"
+        )
     cs = (cr.get("character_setting") or "").strip()
     if cs:
-        static_parts.append(f"【角色设定（设计文档）】\n{cs[:15000]}")
+        static_parts.append(
+            f"【角色设定（设计文档）】\n{compress_character_setting(cs, chapter_chars, budget=CHARACTER_BUDGET)}"
+        )
 
     system_msg = "\n\n".join(static_parts)
 
@@ -693,6 +670,10 @@ def create_chapter_writer_agent(llm: BaseChatModel) -> Runnable:
                 mem_text = str(loaded_mem)
         else:
             mem_text = "（无）"
+
+        # v9.1: 长期记忆结构化压缩，防超长稀释
+        if len(mem_text) > MEM_BUDGET:
+            mem_text = compress_mem_text(mem_text, budget=MEM_BUDGET)
 
         # ── cross_chapter_state = writer_context from ContextBuilder ───────────
         # Contains: 【本章大纲】【跨章角色状态追踪】【当前卷】
@@ -778,8 +759,8 @@ def create_chapter_writer_agent(llm: BaseChatModel) -> Runnable:
             # 仍需包含 story_outline / character_setting。末尾追加核心要求。
             direct_prompt = (
                 f"请撰写第 {current_ch} 章的正文。\n\n"
-                f"【故事主线大纲】\n{ctx['story_outline'][:20000]}\n\n"
-                f"【角色设定】\n{ctx['character_setting'][:15000]}\n\n"
+                f"【故事主线大纲】\n{compress_outline(ctx['story_outline']) or '（无）'}\n\n"
+                f"【角色设定】\n{compress_character_setting(ctx['character_setting']) or '（无）'}\n\n"
                 f"【前章摘要】\n{direct_prev_summary}\n"
                 + (
                     f"\n【前章结尾场景】\n{direct_prev_ending}\n"
@@ -852,11 +833,22 @@ def create_chapter_planner_agent(llm: BaseChatModel) -> Runnable:
             _planner_prev_summary = _parts[0].strip()
             _planner_prev_ending = _parts[1].strip() if len(_parts) > 1 else ""
 
-        prompt = f"""你是一位资深网文编辑，负责为第{current_ch}章制定写作计划（共{total}章）。
+        prompt = f"""你是资深网文编辑，负责为第{current_ch}章制定写作计划（全书共{total}章）。
 
-请基于以下信息输出结构化的章节计划：
+## 任务
+基于输入信息，规划出可执行的章节写作计划，输出结构化 JSON。
 
-## 核心设定
+## 什么是好的
+- 计划具体可执行：每个场景都有明确目的、地点、出场人物、关键内容与感官侧重
+- 衔接自然：开头承接前章结尾场景，结尾为下章埋下钩子
+- 伏笔清晰：本章埋设（plant）与回收（resolve）的伏笔各自成条
+- 情感弧线明确：情绪走向起伏可感，而非平铺直叙
+
+## 什么不能做
+- 输出 JSON 之外的任何文字（含思考过程、解释说明、markdown 围栏）
+- 计划空泛：场景无目的、无关键内容，无法指导实际写作
+
+## 输入上下文
 【主线大纲】
 {ctx.get("story_outline", "")[:12000]}
 
@@ -867,11 +859,14 @@ def create_chapter_planner_agent(llm: BaseChatModel) -> Runnable:
 {_planner_prev_summary}
 {chr(10) + '【前章结尾场景】' + chr(10) + _planner_prev_ending if _planner_prev_ending else ''}
 
-## 写作上下文
+【写作上下文】
 {cross_chapter[:10000] if cross_chapter else "（无）"}
 
-## 评审反馈（仅重写时有）
+【评审反馈（仅重写时有）】
 {review_feedback[:2000] if review_feedback else "（首次创作，无评审反馈）"}
+
+## 思考过程（仅内部，禁止输出）
+输出前先在 <thinking> 内规划：本章核心情节点、与前章衔接方式、场景排布（3-5个）、情感弧线、伏笔埋设与回收、结尾悬念。thinking 不写入输出。
 
 ## 输出要求
 输出严格的 JSON 对象，包含以下字段：
@@ -1178,76 +1173,8 @@ def create_chapter_refiner_agent(llm: BaseChatModel) -> Runnable:
 
         _logger.info("Refining chapter %d", current_ch)
 
-        # ── Build review feedback text ─────────────────────────────────────
-        review_result_str = ""
-        if isinstance(review_result, dict):
-            score = review_result.get("quality_score", 0)
-            comments = review_result.get("review_comments", "")
-
-            parts = [f"质量总分：{score}", f"审核意见：{comments}"]
-
-            ai_fix = review_result.get("ai_style_fix", "")
-            if ai_fix and ai_fix not in (
-                "AI味指数合格，无需特别修改。",
-                "",
-            ):
-                parts.append(f"AI味修改建议：{ai_fix}")
-
-            lao_fix = review_result.get("lao_shu_chong_fix", "")
-            if lao_fix and lao_fix not in (
-                "老书虫视角评分良好，保持当前方向。",
-                "",
-            ):
-                parts.append(f"老书虫修改建议：{lao_fix}")
-
-            # v8.1: 吸引力专家团队建议透传（失败时为空串）
-            attraction_fix = review_result.get("attraction_fix", "")
-            if attraction_fix:
-                parts.append(f"吸引力专家建议（attraction_fix）：{attraction_fix}")
-
-            toxic = review_result.get("toxic_points", [])
-            if toxic:
-                parts.append(f"毒点（必须规避或弱化）：{'、'.join(toxic)}")
-
-            shuang = review_result.get("shuangdian_points", [])
-            if shuang:
-                parts.append(f"爽点（保留并增强）：{'、'.join(shuang)}")
-
-            debate_issues = review_result.get("debate_issues", [])
-            if debate_issues:
-                parts.append(
-                    "编辑+读者发现问题：\n"
-                    + "\n".join(f"  - {i}" for i in debate_issues)
-                )
-
-            debate_strengths = review_result.get("debate_strengths", [])
-            if debate_strengths:
-                parts.append(
-                    "编辑+读者认可亮点（必须保留）：\n"
-                    + "\n".join(f"  - {s}" for s in debate_strengths)
-                )
-
-            debate_suggestions = review_result.get("debate_suggestions", "")
-            if debate_suggestions:
-                parts.append(f"编辑+读者改进建议：\n{debate_suggestions}")
-
-            ai_metrics = review_result.get("ai_style_metrics_brief", "")
-            if ai_metrics and ai_metrics != "各项指标正常":
-                parts.append(f"程序化指标（针对性修改）：{ai_metrics}")
-
-            cross_brief = review_result.get("cross_chapter_brief", "")
-            if cross_brief and "正常" not in cross_brief:
-                parts.append(f"跨章一致性指导：{cross_brief}")
-
-            debate_transcript = review_result.get("debate_transcript", "")
-            if debate_transcript and len(debate_transcript) > 50:
-                parts.append(
-                    f"完整辩论记录（供深度参考）：\n{debate_transcript[:1000]}"
-                )
-
-            review_result_str = "\n".join(parts)
-        else:
-            review_result_str = str(review_result)
+        # ── Build review feedback text（v9.1: 段落修复与整章润色共用）────
+        review_result_str = _build_refine_feedback_text(review_result)
 
         # ── v7.0: Refine strategy rotation ────────────────────────────────
         # 根据 refine_attempts 轮换润色策略，避免每次润色方式相同
@@ -1342,6 +1269,112 @@ def create_chapter_refiner_agent(llm: BaseChatModel) -> Runnable:
                 refined_chapter != chapter_draft
                 and any(k in response_text for k in ['"fixes"', "'fixes'"])
             ),
+        )
+
+        existing_cr = state.get("crew_result", {})
+        return {"crew_result": {**existing_cr, "refined_chapter": refined_chapter}}
+
+    return RunnableLambda(_node)
+
+
+def _strip_thinking_and_fences(text: str) -> str:
+    """清洗整章润色输出 — 移除 <thinking> 块与代码块围栏。
+
+    整章润色 agent 直接输出章节正文，模型偶发违规会携带 <thinking> 头
+    或用 ``` 包裹正文，需要程序化清洗后再回写章节。
+    """
+    if not text:
+        return text
+    cleaned = re.sub(r"<thinking>.*?</thinking>", "", text, flags=re.DOTALL)
+    # 去掉开头的 ``` 围栏（含可选语言标记）
+    cleaned = re.sub(r"^```(?:json|markdown|text)?\s*", "", cleaned)
+    cleaned = cleaned.strip("`").strip()
+    return cleaned
+
+
+def create_chapter_full_refiner_agent(llm: BaseChatModel) -> Runnable:
+    """Build the ChapterFullRefiner agent（整章润色兜底，v9.1）。
+
+    与 create_chapter_refiner_agent 的分工（渐进式修复强度升级）：
+      - paragraph refiner: 只输出 fixes diff，程序化合并回原文（点修复）
+      - full refiner:      输出修复后的完整章节正文（面修复）
+    触发时机：段落修复后重审仍 REFINE（refine_attempts >= 1）。
+
+    Output: {"refined_chapter": str}（完整章节正文）
+    """
+    from novelfactory.tools import get_neo4j_tools
+
+    tools = get_neo4j_tools()
+
+    agent = create_react_agent(
+        llm,
+        tools=tools,
+        prompt=CHAPTER_FULL_REFINER_PROMPT + "\n\n## 工具使用\n"
+        "你拥有角色关系查询工具。在润色过程中如需确认角色关系，"
+        "可调用 get_character_network 或 get_all_characters。",
+        interrupt_before=[],
+    )
+
+    def _node(state: dict) -> dict[str, Any]:
+        ctx = extract_fields_from_state(state, _WRITING_FIELDS)
+        chapter_draft = ctx.get("chapter_draft", "")
+        review_result = ctx.get("review_result", {})
+        current_ch = ctx.get("current_chapter_number", 1)
+
+        if not chapter_draft:
+            _logger.warning("No chapter_draft to full-refine")
+            existing_cr = state.get("crew_result", {})
+            return {
+                "crew_result": {
+                    **existing_cr,
+                    "refined_chapter": "章节草稿为空，无法润色",
+                }
+            }
+
+        _logger.info("Full-refining chapter %d", current_ch)
+
+        # 反馈构建与段落修复共用同一逻辑
+        review_result_str = _build_refine_feedback_text(review_result)
+
+        # 润色策略轮换（复用 _REFINE_STRATEGIES，语义与段落修复一致）
+        refine_strategy = ""
+        refine_attempts = ctx.get("refine_attempts", 0)
+        if refine_attempts > 0:
+            idx = min(refine_attempts - 1, len(_REFINE_STRATEGIES) - 1)
+            refine_strategy = _REFINE_STRATEGIES[idx] + "\n\n"
+
+        full_refine_prompt = (
+            f"请对第{current_ch}章执行整章润色（兜底修复）。\n\n"
+            f"【审核评分结果】\n{refine_strategy}{review_result_str}\n\n"
+            f"【待润色章节】\n{chapter_draft}\n\n"
+            "请输出修复后的完整章节正文（不要 JSON、不要 [Px] 标记）。"
+        )
+
+        result = _retry_agent_invoke(
+            agent, {"messages": [("user", full_refine_prompt)]}, "chapter_full_refiner"
+        )
+        response_text = extract_ai_message_text(result) or ""
+
+        # 整章润色直接取正文（清洗 thinking/围栏污染）
+        refined_chapter = _strip_thinking_and_fences(response_text)
+
+        # 空输出兜底：保留原文，防止 analysis/text 污染章节字段
+        if not refined_chapter or len(refined_chapter) < 500:
+            _logger.warning(
+                "Chapter %d: full-refiner output too short (%d chars), "
+                "falling back to original draft",
+                current_ch,
+                len(refined_chapter),
+            )
+            existing_cr = state.get("crew_result", {})
+            refined_chapter = (
+                chapter_draft or existing_cr.get("refined_chapter") or ""
+            )
+
+        _logger.info(
+            "Chapter %d full-refined (%d chars)",
+            current_ch,
+            len(refined_chapter),
         )
 
         existing_cr = state.get("crew_result", {})

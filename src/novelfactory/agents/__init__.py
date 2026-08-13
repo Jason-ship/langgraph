@@ -1,13 +1,13 @@
 """NovelFactory agents package."""
 
 from novelfactory.agents.infra import *  # noqa: F403 — backward compat for agent_infra
-from novelfactory.agents.registry import AgentDefinition, AgentRegistry
 from novelfactory.agents.media_agents import (
     IllustratorOutput,
     TTSGeneratorOutput,
     create_illustrator_agent,
     create_tts_generator_agent,
 )
+from novelfactory.agents.registry import AgentDefinition, AgentRegistry
 from novelfactory.agents.review_agents import (
     ChapterReviewOutput,
     KickoffReviewOutput,
@@ -33,6 +33,7 @@ from novelfactory.agents.writing_agents import (
     ChapterRefinerOutput,
     ChapterReviewerOutput,
     ChapterWriterOutput,
+    create_chapter_full_refiner_agent,
     create_chapter_refiner_agent,
     create_chapter_reviewer_agent,
     create_chapter_writer_agent,
@@ -53,6 +54,7 @@ __all__ = [
     "create_chapter_writer_agent",
     "create_chapter_reviewer_agent",
     "create_chapter_refiner_agent",
+    "create_chapter_full_refiner_agent",
     "ChapterWriterOutput",
     "ChapterReviewerOutput",
     "ChapterRefinerOutput",

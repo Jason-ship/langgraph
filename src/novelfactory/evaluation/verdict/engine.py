@@ -999,11 +999,17 @@ class VerdictEngine:
             )
 
         # v7.8-fix: 仅双向用尽才标记 force-pass 到校准原因
+        # v9.1: 按四维 quality_score 区分通过类型（≥80 高质量兜底通过，<80 低分兜底放行可追踪）
         both_exhausted = attempt_info.rewrite_exhausted and attempt_info.refine_exhausted
         if level == VerdictLevel.PASS and both_exhausted:
+            pass_kind = (
+                f"高质量兜底通过(final={final_score:.0f}, quality={quality_score:.0f})"
+                if quality_score >= 80.0
+                else f"低分兜底放行(final={final_score:.0f}, quality={quality_score:.0f})"
+            )
             cal_reason = (
                 f"{cal_reason}; " if cal_reason else "评分校准: "
-            ) + f"双向次数用尽强制通过(final={final_score:.0f}分)"
+            ) + f"双向次数用尽{pass_kind}"
 
         # 融合 LLM 严重毒点标记
         combined_severe_toxic = (
