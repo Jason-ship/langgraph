@@ -14,6 +14,8 @@ from datetime import UTC, datetime
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
+from novelfactory.store.memory_store import MemoryStore, get_memory_store
+
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/memory", tags=["memory"])
 
@@ -77,24 +79,40 @@ class FactCreateRequest(BaseModel):
     confidence: float = Field(default=0.5, ge=0, le=1, description="置信度")
 
 
-# ── 内存存储（简化版） ──
-# TODO: 当前使用纯内存存储，进程重启后数据丢失。生产环境应迁移至持久化存储
-# （如 PostgreSQL / Redis），可通过 MemoryRepository 封装实现。
+# ── 存储（v8.4 落库修复：PostgreSQL 持久化，无 DB 时回退内存） ──
 
-_memory_store: dict[str, MemoryResponse] = {}
-_fact_store: list[Fact] = []
+_memory_store: MemoryStore | None = None
+
+
+def _get_store() -> MemoryStore:
+    """获取共享 MemoryStore。"""
+    global _memory_store
+    if _memory_store is None:
+        _memory_store = get_memory_store()
+    return _memory_store
+
+
+def _to_response(data: dict | None) -> MemoryResponse:
+    if data is None:
+        return MemoryResponse(lastUpdated=datetime.now(UTC).isoformat())
+    # data 来自 store（JSON round-trip），补齐缺失字段
+    try:
+        return MemoryResponse.model_validate(data)
+    except Exception:
+        return MemoryResponse(lastUpdated=data.get("lastUpdated", datetime.now(UTC).isoformat()))
 
 
 @router.get("", response_model=MemoryResponse)
 async def get_memory():
     """获取当前记忆数据。"""
-    return _memory_store.get("default", MemoryResponse(lastUpdated=datetime.now(UTC).isoformat()))
+    return _to_response(_get_store().load_memory())
 
 
 @router.put("", response_model=MemoryResponse)
 async def update_memory(body: MemoryUpdateRequest):
     """更新记忆数据。"""
-    existing = _memory_store.get("default", MemoryResponse())
+    store = _get_store()
+    existing = _to_response(store.load_memory())
     now = datetime.now(UTC).isoformat()
 
     if body.user:
@@ -103,7 +121,7 @@ async def update_memory(body: MemoryUpdateRequest):
         existing.history = body.history
 
     existing.lastUpdated = now
-    _memory_store["default"] = existing
+    store.save_memory("default", existing.model_dump())
     return existing
 
 
@@ -114,9 +132,8 @@ async def list_facts(category: str | None = None):
     Args:
         category: 可选分类过滤。
     """
-    if category:
-        return [f for f in _fact_store if f.category == category]
-    return list(_fact_store)
+    facts = _get_store().list_facts(category)
+    return [Fact.model_validate(f) for f in facts]
 
 
 @router.post("/facts", response_model=Fact)
@@ -129,84 +146,92 @@ async def create_fact(body: FactCreateRequest):
         confidence=body.confidence,
         createdAt=datetime.now(UTC).isoformat(),
     )
-    _fact_store.append(fact)
+    _get_store().create_fact(fact.model_dump())
     return fact
 
 
 @router.delete("/facts/{fact_id}")
 async def delete_fact(fact_id: str):
     """删除事实。"""
-    global _fact_store
-    _fact_store = [f for f in _fact_store if f.id != fact_id]
+    _get_store().delete_fact(fact_id)
     return {"status": "deleted", "fact_id": fact_id}
 
 
 @router.patch("/facts/{fact_id}", response_model=MemoryResponse)
 async def update_fact(fact_id: str, body: FactCreateRequest | None = None):
     """部分更新事实（content/category/confidence 可选）。"""
-    global _fact_store
-    for i, f in enumerate(_fact_store):
-        if f.id == fact_id:
-            if body:
-                _fact_store[i] = Fact(
-                    id=f.id,
-                    content=body.content if body.content else f.content,
-                    category=body.category if body.category else f.category,
-                    confidence=body.confidence if body.confidence else f.confidence,
-                    createdAt=f.createdAt,
-                    source=f.source,
-                )
-            break
-    return _memory_store.get("default", MemoryResponse(lastUpdated=datetime.now(UTC).isoformat()))
+    store = _get_store()
+    if body:
+        store.update_fact(fact_id, body.model_dump())
+    else:
+        # 无 body 时视为仅更新内容为空——保持原事实不变
+        current = None
+        for f in store.list_facts():
+            if f["id"] == fact_id:
+                current = f
+                break
+        if current:
+            store.update_fact(fact_id, {})
+    return _to_response(store.load_memory())
 
 
 @router.delete("", response_model=MemoryResponse)
 async def clear_memory():
     """清除所有记忆数据。"""
-    _memory_store.pop("default", None)
-    _fact_store.clear()
+    _get_store().clear()
     return MemoryResponse(lastUpdated=datetime.now(UTC).isoformat())
 
 
 @router.get("/export", response_model=MemoryResponse)
 async def export_memory():
     """导出记忆为 JSON。"""
-    return _memory_store.get("default", MemoryResponse(lastUpdated=datetime.now(UTC).isoformat()))
+    return _to_response(_get_store().load_memory())
 
 
 @router.post("/import", response_model=MemoryResponse)
 async def import_memory():
     """导入并覆盖记忆数据（stub）。"""
-    return _memory_store.get("default", MemoryResponse(lastUpdated=datetime.now(UTC).isoformat()))
+    return _to_response(_get_store().load_memory())
 
 
 @router.get("/config")
 async def memory_config():
     """记忆系统配置。"""
+    store = _get_store()
     return {
         "enabled": True,
         "mode": "tool",
         "injection_enabled": True,
         "shutdown_flush_timeout_seconds": 30.0,
-        "manager_class": "novelfactory.store.memory.MemoryManager",
-        "backend_config": {},
+        "manager_class": "novelfactory.store.memory_store.MemoryStore",
+        "backend_config": {
+            "persistent": store.persistent,
+            "backend": "postgresql" if store.persistent else "in-memory",
+        },
     }
 
 
 @router.get("/status")
 async def memory_status():
     """记忆系统状态。"""
+    store = _get_store()
+    facts = store.list_facts()
+    memory = _to_response(store.load_memory())
     return {
         "enabled": True,
-        "fact_count": len(_fact_store),
-        "memory_configured": "default" in _memory_store,
+        "fact_count": len(facts),
+        "memory_configured": store.load_memory() is not None,
+        "persistent": store.persistent,
         "config": {
             "enabled": True,
             "mode": "tool",
             "injection_enabled": True,
             "shutdown_flush_timeout_seconds": 30.0,
-            "manager_class": "novelfactory.store.memory.MemoryManager",
-            "backend_config": {},
+            "manager_class": "novelfactory.store.memory_store.MemoryStore",
+            "backend_config": {
+                "persistent": store.persistent,
+                "backend": "postgresql" if store.persistent else "in-memory",
+            },
         },
-        "memory": _memory_store.get("default", MemoryResponse(lastUpdated=datetime.now(UTC).isoformat())),
+        "memory": memory,
     }

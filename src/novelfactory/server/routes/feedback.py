@@ -14,6 +14,8 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from novelfactory.store.feedback_store import FeedbackStore, get_feedback_store
+
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/threads", tags=["feedback"])
 
@@ -41,11 +43,17 @@ class FeedbackStatsResponse(BaseModel):
     negative: int = 0
 
 
-# ── 内存存储（简化版） ──
-# TODO: 当前使用纯内存存储，进程重启后数据丢失。生产环境应迁移至持久化存储
-# （如 PostgreSQL / Redis / MinIO），可通过 FeedbackRepository 封装实现。
+# ── 存储（v8.4 落库修复：PostgreSQL 持久化，无 DB 时回退内存） ──
 
-_feedback_store: list[dict] = []
+_feedback_store: FeedbackStore | None = None
+
+
+def _get_store() -> FeedbackStore:
+    """获取共享 FeedbackStore。"""
+    global _feedback_store
+    if _feedback_store is None:
+        _feedback_store = get_feedback_store()
+    return _feedback_store
 
 
 @router.post("/{thread_id}/runs/{run_id}/feedback", response_model=FeedbackResponse)
@@ -66,7 +74,7 @@ async def create_feedback(thread_id: str, run_id: str, body: FeedbackCreateReque
         "message_id": body.message_id,
         "created_at": datetime.now(UTC).isoformat(),
     }
-    _feedback_store.append(feedback)
+    _get_store().create(feedback)
 
     logger.info("[feedback] Created: thread=%s run=%s rating=%+d", thread_id, run_id, body.rating)
     return FeedbackResponse(**feedback)
@@ -75,18 +83,16 @@ async def create_feedback(thread_id: str, run_id: str, body: FeedbackCreateReque
 @router.get("/{thread_id}/runs/{run_id}/feedback", response_model=list[FeedbackResponse])
 async def list_feedback(thread_id: str, run_id: str):
     """获取反馈列表。"""
-    results = [
+    return [
         FeedbackResponse(**fb)
-        for fb in _feedback_store
-        if fb["thread_id"] == thread_id and fb["run_id"] == run_id
+        for fb in _get_store().list_by_run(thread_id, run_id)
     ]
-    return results
 
 
 @router.get("/{thread_id}/runs/{run_id}/feedback/stats", response_model=FeedbackStatsResponse)
 async def feedback_stats(thread_id: str, run_id: str):
     """获取反馈统计。"""
-    items = [fb for fb in _feedback_store if fb["thread_id"] == thread_id and fb["run_id"] == run_id]
+    items = _get_store().list_by_run(thread_id, run_id)
     return FeedbackStatsResponse(
         thread_id=thread_id,
         run_id=run_id,
@@ -99,13 +105,6 @@ async def feedback_stats(thread_id: str, run_id: str):
 @router.delete("/{thread_id}/runs/{run_id}/feedback/{feedback_id}")
 async def delete_feedback(thread_id: str, run_id: str, feedback_id: str):
     """删除反馈。"""
-    global _feedback_store
-    before = len(_feedback_store)
-    _feedback_store = [
-        fb
-        for fb in _feedback_store
-        if not (fb["feedback_id"] == feedback_id and fb["thread_id"] == thread_id and fb["run_id"] == run_id)
-    ]
-    if len(_feedback_store) == before:
+    if not _get_store().delete(feedback_id, thread_id, run_id):
         raise HTTPException(status_code=404, detail="Feedback not found")
     return {"status": "deleted"}
