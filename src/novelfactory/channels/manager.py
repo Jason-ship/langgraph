@@ -120,7 +120,7 @@ class ChannelManager:
     """Core dispatcher that bridges IM channels to the NovelFactory agent.
 
     Reads from the MessageBus inbound queue, creates/reuses threads,
-    runs the agent via direct graph.ainvoke/astream_events calls,
+    runs the agent via a RunExecutor (default: LangGraphRunExecutor),
     and publishes outbound responses back through the bus.
     """
 
@@ -133,6 +133,7 @@ class ChannelManager:
         default_recursion_limit: int = DEFAULT_RECURSION_LIMIT,
         get_graph: Any = None,
         get_context: Any = None,
+        executor: Any | None = None,
         connection_repo: Any | None = None,
         require_bound_identity: bool = False,
     ) -> None:
@@ -142,6 +143,17 @@ class ChannelManager:
         self._default_recursion_limit = default_recursion_limit
         self._get_graph = get_graph
         self._get_context = get_context
+        # v8.4: 执行器抽象（RunExecutor）— 未传入时用 LangGraph 默认实现
+        if executor is not None:
+            self._executor = executor
+        else:
+            from novelfactory.channels.executor import LangGraphRunExecutor
+
+            self._executor = LangGraphRunExecutor(
+                get_graph=get_graph,
+                get_context=get_context,
+                default_recursion_limit=default_recursion_limit,
+            )
         self._connection_repo = connection_repo
         self._require_bound_identity = require_bound_identity
 
@@ -457,21 +469,20 @@ class ChannelManager:
             return
 
         # Non-streaming path: run agent synchronously
-        graph = self._get_graph() if self._get_graph else None
-        if graph is None:
-            await self._send_error(msg, "Agent not available. Please try again later.")
-            return
-
         try:
             context = self._get_context(thread_id) if self._get_context else {"thread_id": thread_id, "user_id": msg.owner_user_id or msg.user_id}
-            result = await graph.ainvoke(
+            result = await self._executor.ainvoke(
                 {"messages": [human_message]},
-                config={"configurable": {"thread_id": thread_id}, "recursion_limit": self._default_recursion_limit},
+                thread_id=thread_id,
+                recursion_limit=self._default_recursion_limit,
                 context=context,
             )
         except Exception as exc:
             if "already running" in str(exc).lower():
                 await self._send_error(msg, THREAD_BUSY_MESSAGE)
+                return
+            if "not available" in str(exc).lower():
+                await self._send_error(msg, "Agent not available. Please try again later.")
                 return
             raise
 
@@ -493,11 +504,6 @@ class ChannelManager:
         await self.bus.publish_outbound(outbound)
 
     async def _handle_streaming_chat(self, msg: InboundMessage, thread_id: str, human_message: dict[str, Any]) -> None:
-        graph = self._get_graph() if self._get_graph else None
-        if graph is None:
-            await self._send_error(msg, "Agent not available.")
-            return
-
         latest_text = ""
         last_published_text = ""
         last_published_len = 0
@@ -505,10 +511,10 @@ class ChannelManager:
 
         try:
             context = self._get_context(thread_id) if self._get_context else {"thread_id": thread_id, "user_id": msg.owner_user_id or msg.user_id}
-            async for event in graph.astream_events(
+            async for event in self._executor.astream_events(
                 {"messages": [human_message]},
-                config={"configurable": {"thread_id": thread_id}, "recursion_limit": self._default_recursion_limit},
-                version="v2",
+                thread_id=thread_id,
+                recursion_limit=self._default_recursion_limit,
                 context=context,
             ):
                 event_kind = event.get("event", "")

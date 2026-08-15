@@ -102,6 +102,16 @@ all = [
 [project.scripts]
 novelfactory = "novelfactory.cli.commands:cli"
 
+[[tool.uv.index]]
+url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+default = true
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.2",
+    "pytest-asyncio>=0.26.0",
+]
+
 [project.urls]
 Homepage = "https://github.com/Jason-ship/langgraph"
 Documentation = "https://github.com/Jason-ship/langgraph/docs"

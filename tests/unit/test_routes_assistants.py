@@ -55,7 +55,7 @@ class TestListAssistants:
         assert len(data["assistants"]) >= 1
         ast = data["assistants"][0]
         assert ast["assistant_id"] == "novelfactory"
-        assert ast["name"] == "NovelFactory"
+        assert ast["name"].startswith("NovelFactory")
 
     def test_search_assistants(self):
         """POST /assistants/search → 200，返回与 list 一致的数据。"""

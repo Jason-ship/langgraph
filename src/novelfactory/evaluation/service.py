@@ -103,6 +103,38 @@ class ReviewService:
                 calibration_reason=f"评审失败降级: {e}",
             )
 
+    async def quick_recheck(
+        self,
+        chapter_text: str,
+        old_issues: list[str],
+        old_score: float,
+        reviewer_llm: BaseChatModel | None = None,
+    ) -> Any:
+        """修复后回归复查（轻量）— DSH 工具面之一。
+
+        Args:
+            chapter_text: 修复后的章节文本
+            old_issues: 上一轮评审的问题清单（toxic/debate 等）
+            old_score: 上一轮 final_score
+            reviewer_llm: 评审 LLM（默认 reviewer tier）
+
+        Returns:
+            UnifiedReviewResult 或 None（解析失败/异常时降级）。
+        """
+        from novelfactory.evaluation.unified import UnifiedReviewEngine
+
+        llm = reviewer_llm or get_reviewer_llm()
+        engine = UnifiedReviewEngine(llm)
+        try:
+            return await engine.quick_recheck(
+                chapter_text=chapter_text,
+                old_issues=old_issues,
+                old_score=old_score,
+            )
+        except Exception as e:
+            logger.exception("[ReviewService] quick_recheck failed: %s", e)
+            return None
+
     async def evaluate_conversational(
         self,
         chapter_text: str,
