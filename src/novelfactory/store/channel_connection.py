@@ -22,14 +22,17 @@ TABLE_OAUTH_STATES = "channel_oauth_states"
 class ChannelConnectionRepository:
     """Persistence facade for channel connections, OAuth states, and conversations."""
 
-    def __init__(self, pool: Any = None) -> None:
+    def __init__(self, pool: Any = None, channel_store: Any = None) -> None:
         """Initialize with a database connection pool.
 
         Args:
             pool: An asyncpg pool or similar connection pool with execute/fetch/fetchrow methods.
                   If None, only in-memory operations are supported.
+            channel_store: 可选通道存储（提供 set_thread_id/get_thread_id）。
+                  v8.4: 依赖注入替代反向 import channels.service，避免存储层依赖业务层。
         """
         self._pool = pool
+        self._channel_store = channel_store
 
     @staticmethod
     def _new_id() -> str:
@@ -196,19 +199,25 @@ class ChannelConnectionRepository:
         thread_id: str,
         external_topic_id: str | None = None,
     ) -> None:
-        """Store thread mapping for a connection."""
-        # Fall back to ChannelStore for now
-        from novelfactory.channels.service import get_channel_service
+        """Store thread mapping for a connection.
 
-        service = get_channel_service()
-        if service and service.store:
-            service.store.set_thread_id(
-                provider,
-                external_conversation_id,
-                thread_id,
-                topic_id=external_topic_id,
-                user_id=owner_user_id,
+        v8.4: 通过构造注入的 channel_store 持久化（依赖注入），
+        不再反向 import channels.service（消除存储层→业务层循环依赖）。
+        """
+        if self._channel_store is None:
+            logger.warning(
+                "[ChannelConnection] set_thread_id: channel_store 未注入，线程映射未持久化 "
+                "(connection_id=%s)",
+                connection_id,
             )
+            return
+        self._channel_store.set_thread_id(
+            provider,
+            external_conversation_id,
+            thread_id,
+            topic_id=external_topic_id,
+            user_id=owner_user_id,
+        )
 
     async def get_thread_id(
         self,
