@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 
 from novelfactory.config.constants import EMBEDDING_DIMS_DEFAULT
 
@@ -200,3 +201,28 @@ class MilvusStore:
     def close(self) -> None:
         if self._client:
             self._client.close()
+
+
+# ── 模块级单例（v8.4: 统一 Milvus 客户端入口，消除多处独立实例）────────────────
+
+_milvus_singleton: MilvusStore | None = None
+_milvus_singleton_lock = threading.Lock()
+
+
+def get_milvus_store() -> MilvusStore:
+    """Lazy-load shared MilvusStore singleton (thread-safe).
+
+    统一入口：milvus_store / guide_store / tools / database_writer 共享同一连接。
+    """
+    global _milvus_singleton
+    if _milvus_singleton is None:
+        with _milvus_singleton_lock:
+            if _milvus_singleton is None:
+                from novelfactory.config.settings import settings
+
+                _milvus_singleton = MilvusStore(settings)
+                if not _milvus_singleton.is_connected():
+                    logger.warning(
+                        "[get_milvus_store] Milvus 连接失败，向量功能将不可用"
+                    )
+    return _milvus_singleton

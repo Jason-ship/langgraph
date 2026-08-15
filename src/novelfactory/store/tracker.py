@@ -79,7 +79,10 @@ class NovelStateTracker:
         self.pg = _pg_store
 
         if _milvus_store is None:
-            _milvus_store = MilvusStore(self.config)
+            # v8.4: 统一共享单例，避免多实例连接
+            from novelfactory.store.milvus_store import get_milvus_store
+
+            _milvus_store = get_milvus_store()
         self.milvus = _milvus_store
 
         if _neo4j_store is None:

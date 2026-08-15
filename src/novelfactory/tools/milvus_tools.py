@@ -19,25 +19,19 @@ from langchain_core.tools import tool
 logger = logging.getLogger(__name__)
 
 # ── 模块级单例（线程安全懒加载）──────────────────────────────────────────
-_milvus_store = None
 _embedding_service = None
 _guide_store = None
 _lock = threading.Lock()
 
 
 def _get_milvus():
-    """懒加载 MilvusStore 单例。"""
-    global _milvus_store
-    if _milvus_store is None:
-        with _lock:
-            if _milvus_store is None:
-                from novelfactory.config.settings import settings
-                from novelfactory.store.milvus_store import MilvusStore
+    """懒加载共享 MilvusStore（v8.4: 复用 get_milvus_store 单例）。"""
+    from novelfactory.store.milvus_store import get_milvus_store
 
-                _milvus_store = MilvusStore(settings)
-                if not _milvus_store.is_connected():
-                    logger.warning("[milvus_tools] Milvus 连接失败，工具将返回空结果")
-    return _milvus_store
+    store = get_milvus_store()
+    if not store.is_connected():
+        logger.warning("[milvus_tools] Milvus 连接失败，工具将返回空结果")
+    return store
 
 
 def _get_embedding():

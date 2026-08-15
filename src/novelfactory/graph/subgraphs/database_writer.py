@@ -41,22 +41,11 @@ _module_lock = threading.Lock()
 
 
 def _get_milvus_client() -> Any:
-    """获取模块级 MilvusClient 单例（线程安全）。"""
-    global _milvus_client
-    if _milvus_client is None:
-        with _module_lock:
-            # Double-checked locking
-            if _milvus_client is None:
-                from pymilvus import MilvusClient
+    """获取共享 MilvusStore 的客户端（v8.4: 复用 get_milvus_store 单例）。"""
+    from novelfactory.store.milvus_store import get_milvus_store
 
-                from novelfactory.config.settings import settings
-
-                _milvus_client = MilvusClient(
-                    uri=f"http://{settings.MILVUS_HOST}:{settings.MILVUS_PORT}",
-                    timeout=10,
-                    db_name="default",
-                )
-    return _milvus_client
+    store = get_milvus_store()
+    return getattr(store, "_client", None)
 
 
 def _get_milvus_embedding_service() -> Any:
