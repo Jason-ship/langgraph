@@ -49,14 +49,15 @@ async def _chapter_refiner_node(state: BaseCrewState) -> dict[str, Any]:
     review_result: Any = cr.get("review_result", {})
 
     # ── v9.1: REFINE 轮次判定（两级策略升级）───────────────────────────
-    # coordinator 已回退 _refine_count，此处防御性再回退一次（子图状态合并丢字段时）。
+    # coordinator 在 REFINE 分支已递增 refine_attempts（v8.1-fix）：
+    #   第 1 轮 REFINE 后 =1 → 段落修复（点修复，保留新版优势）
+    #   第 2 轮 REFINE 后 =2 → 整章润色兜底（面修复）
     refine_attempts = int(  # type: ignore[call-overload]
         state.get("refine_attempts", 0)
     )
     if refine_attempts == 0 and cr.get("_refine_count", 0) > 0:
         refine_attempts = int(cr["_refine_count"])
-    # 0=段落修复, >=1=整章润色兜底
-    use_full_refiner = refine_attempts >= 1
+    use_full_refiner = refine_attempts > 1
 
     # ── Read feedback from unified verdict_result ─────────────────────────
     # feedback is the VerdictResult.feedback (FeedbackBundle) dict

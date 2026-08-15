@@ -208,8 +208,30 @@ class VerdictEngine:
         if ur.severe_toxic and not attempt_info.rewrite_exhausted:
             return VerdictLevel.REWRITE
 
+        # v9.1: 单向用尽降级（防 refine/rewrite 死循环，对齐旧版红绿灯机制）
+        rewrite_spent = (
+            attempt_info.rewrite_exhausted and not attempt_info.refine_exhausted
+        )
+        refine_spent = (
+            attempt_info.refine_exhausted and not attempt_info.rewrite_exhausted
+        )
+
         if final_score >= pass_th:
             return VerdictLevel.PASS
+        if refine_spent:
+            # refine 用尽仍未达通过线 → 换重写思路（rewrite 还有预算）
+            logger.info(
+                "[VerdictEngine] refine 用尽(%d/%d) 未达通过线 final=%.1f → REWRITE",
+                attempt_info.refine_attempts, attempt_info.max_refine, final_score,
+            )
+            return VerdictLevel.REWRITE
+        if rewrite_spent:
+            # rewrite 用尽未达通过线 → 尝试润色（refine 还有预算）
+            logger.info(
+                "[VerdictEngine] rewrite 用尽(%d/%d) 未达通过线 final=%.1f → REFINE",
+                attempt_info.loop_count, attempt_info.max_rewrite, final_score,
+            )
+            return VerdictLevel.REFINE
         if final_score >= refine_th:
             return VerdictLevel.REFINE
         return VerdictLevel.REWRITE

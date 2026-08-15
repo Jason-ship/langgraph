@@ -58,6 +58,11 @@ def _init_registry() -> None:
             input_cost_per_mtok=0.5,
             output_cost_per_mtok=2.0,
         ),
+        # v8.4: 项目实际调用的模型名别名（与 deepseek-chat 同价）
+        "deepseek-v4-flash": ModelPricing(
+            input_cost_per_mtok=0.5,
+            output_cost_per_mtok=2.0,
+        ),
     }
     _MODEL_REGISTRY.update(defaults)
     _DEFAULT_PRICING = defaults["deepseek-chat"]
@@ -134,4 +139,5 @@ def register_model(model: str, pricing: ModelPricing) -> None:
 
 MODEL_DISPLAY_NAMES: dict[str, str] = {
     "deepseek-chat": "DeepSeek Flash (deepseek-chat)",
+    "deepseek-v4-flash": "DeepSeek Flash (deepseek-v4-flash)",
 }

@@ -12,7 +12,6 @@
 from __future__ import annotations
 
 import json
-from dataclasses import replace
 from typing import Any
 
 from langchain_core.messages import AIMessage
@@ -20,6 +19,7 @@ from langchain_core.messages import AIMessage
 from novelfactory.agents.infra import get_crew_stream, get_logger
 from novelfactory.config.constants import (
     MAX_REWRITE_ATTEMPTS,
+    VERDICT_PASS_THRESHOLD,
     VERDICT_REFINE_THRESHOLD,
 )
 from novelfactory.config.constants import (
@@ -100,15 +100,17 @@ async def _try_quick_recheck(
     if ur is None or ur.failed:
         logger.info("[verdict_engine] 轻量复查未通过（failed=%s），走完整评审", getattr(ur, "failed", None))
         return None
-    refine_th = float(get_param("verdict.refine_threshold") or VERDICT_REFINE_THRESHOLD)
-    if ur.final_score < refine_th:
+    # v9.1: 轻量复查须达通过线（pass_threshold=80）才直接 PASS，
+    # 否则走完整评审兜底——修复加速通道不放松门控（原用 refine_threshold=55 导致低分放行）。
+    pass_th = float(get_param("verdict.pass_threshold") or VERDICT_PASS_THRESHOLD)
+    if ur.final_score < pass_th:
         logger.info(
-            "[verdict_engine] 轻量复查未达标（%.1f < %.1f），走完整评审",
-            ur.final_score, refine_th,
+            "[verdict_engine] 轻量复查未达通过线（%.1f < %.1f），走完整评审",
+            ur.final_score, pass_th,
         )
         return None
     if sw:
-        sw.write(f"  [轻量复查] 修复后回归 {ur.final_score:.1f}/100（达标）\n")
+        sw.write(f"  [轻量复查] 修复后回归 {ur.final_score:.1f}/100（达通过线 {pass_th:.0f}）\n")
     return ur
 
 
@@ -192,7 +194,9 @@ async def verdict_engine_node(state: dict[str, Any]) -> dict[str, Any]:
         verdict = engine._fuse_unified(
             recheck_ur, attempt_info, chapter_length=len(chapter_draft)
         )
-        verdict = replace(verdict, level=VerdictLevel.PASS, passed=True)
+        verdict = verdict.model_copy(
+            update={"level": VerdictLevel.PASS, "passed": True}
+        )
         logger.info(
             "[verdict_engine] ch%d 轻量复查通过 final=%.1f（跳过完整评审）",
             current_ch, verdict.final_score,
