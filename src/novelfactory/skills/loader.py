@@ -18,7 +18,11 @@ import yaml
 
 @dataclass
 class Skill:
-    """单个 Skill 的数据结构。
+    """单个 Skill 的数据结构 — 题材注入专用模型。
+
+    v8.4 命名约定：本模型服务于 SkillLoader 的题材技能发现/注入
+    （genre/triggers/body 字段），与 skills.types.Skill（文件系统
+    元数据模型）及 skills.manager.Skill（API 管理模型）职责不同。
 
     Attributes:
         name: Skill 唯一标识（如 "xian-xia"）

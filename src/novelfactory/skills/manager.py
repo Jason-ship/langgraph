@@ -13,7 +13,12 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class Skill:
-    """Skill definition — loaded from Markdown files."""
+    """Skill definition — loaded from Markdown files（API 管理模型）。
+
+    v8.4 命名约定：本模型服务于 /skills 管理 API（enable/disable/install），
+    与 skills.types.Skill（文件系统元数据）及 skills.loader.Skill
+    （题材注入）职责不同。
+    """
 
     name: str
     description: str = ""
