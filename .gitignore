@@ -115,3 +115,20 @@ scripts/
 # OS files
 .DS_Store
 Thumbs.db
+
+# ── Review 修复 (v8.4-r): 防止运行期产物/临时脚本再次入库 ─────────────────
+# E2E/API 测试产物
+attract_run.json
+standard_run.json
+run_*.json
+run_*.sh
+run_*.out
+chapters/
+current_test.txt
+*.test.txt
+urban-mad-detective/
+# 临时调试脚本（根级）
+check_*.py
+clean_*.py
+tmp_*.json
+dbg_*.py

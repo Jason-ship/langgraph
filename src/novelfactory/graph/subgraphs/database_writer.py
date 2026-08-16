@@ -40,14 +40,6 @@ _neo4j_driver: Any = None
 _module_lock = threading.Lock()
 
 
-def _get_milvus_client() -> Any:
-    """获取共享 MilvusStore 的客户端（v8.4: 复用 get_milvus_store 单例）。"""
-    from novelfactory.store.milvus_store import get_milvus_store
-
-    store = get_milvus_store()
-    return getattr(store, "_client", None)
-
-
 def _get_milvus_embedding_service() -> Any:
     """获取模块级 EmbeddingService 单例（线程安全）。"""
     global _milvus_embedding_service
@@ -256,19 +248,19 @@ def _save_to_milvus_node(state: DatabaseWriterState) -> dict:
         return {"milvus_result": result}
 
     try:
-        client = _get_milvus_client()
+        # v8.4-r: 经 MilvusStore 封装写入（替代私有 _client 访问，Review 修复）
+        from novelfactory.store.milvus_store import get_milvus_store
+
+        store = get_milvus_store()
+        if not store.is_connected():
+            raise RuntimeError("milvus not connected")
         emb = _get_milvus_embedding_service()
         embedding = emb.embed(text[:2000])
-        client.insert(
-            collection_name="novel_chapters",
-            data=[
-                {
-                    "chapter_number": ch,
-                    "project_name": project,
-                    "vector": embedding,
-                    "summary": text[:1000].replace("\n", " ")[:8000],
-                }
-            ],
+        store.store_embedding(
+            project=project,
+            chapter=ch,
+            embedding=embedding,
+            summary=text[:1000].replace("\n", " ")[:8000],
         )
         result["embedding_saved"] = True
     except Exception as e:

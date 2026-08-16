@@ -196,12 +196,15 @@ class MemoryStore:
 
     @staticmethod
     def _row_to_fact(row: tuple) -> dict:
+        # v8.4-r: DB 列 created_at 映射为 API 字段 createdAt（Review 修复：
+        # 原返回 created_at 键导致 Fact.createdAt 丢失，时间戳数据缺失）
+        created = row[4]
         return {
             "id": str(row[0]),
             "content": str(row[1]),
             "category": str(row[2]),
             "confidence": float(row[3]),
-            "created_at": row[4].isoformat() if hasattr(row[4], "isoformat") else str(row[4]),
+            "createdAt": created.isoformat() if hasattr(created, "isoformat") else str(created),
             "source": str(row[5]),
         }
 

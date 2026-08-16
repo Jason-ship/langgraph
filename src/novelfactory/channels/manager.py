@@ -16,6 +16,7 @@ from typing import Any
 
 from novelfactory.channels import feishu_run_policy as _feishu_run_policy  # noqa: F401
 from novelfactory.channels.commands import KNOWN_CHANNEL_COMMANDS
+from novelfactory.channels.executor import AgentUnavailableError
 from novelfactory.channels.message_bus import (
     PENDING_CLARIFICATION_METADATA_KEY,
     InboundMessage,
@@ -477,12 +478,13 @@ class ChannelManager:
                 recursion_limit=self._default_recursion_limit,
                 context=context,
             )
+        except AgentUnavailableError:
+            # v8.4-r: 专用异常替代字符串匹配（Review 修复）
+            await self._send_error(msg, "Agent not available. Please try again later.")
+            return
         except Exception as exc:
             if "already running" in str(exc).lower():
                 await self._send_error(msg, THREAD_BUSY_MESSAGE)
-                return
-            if "not available" in str(exc).lower():
-                await self._send_error(msg, "Agent not available. Please try again later.")
                 return
             raise
 
@@ -551,6 +553,10 @@ class ChannelManager:
                 last_published_text = latest_text
                 last_published_len = len(latest_text)
                 last_publish_at = now
+        except AgentUnavailableError:
+            # v8.4-r: 执行器不可用 → 明确错误提示（Review 修复：恢复原提前返回行为）
+            await self._send_error(msg, "Agent not available. Please try again later.")
+            return
         except Exception:
             logger.exception("[Manager] streaming error: thread_id=%s", thread_id)
 

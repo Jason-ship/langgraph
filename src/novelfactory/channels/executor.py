@@ -18,6 +18,14 @@ from typing import Any, AsyncIterator, Protocol
 logger = logging.getLogger(__name__)
 
 
+class AgentUnavailableError(RuntimeError):
+    """执行后端不可用（graph 未初始化/未注入）。
+
+    v8.4-r (Review 修复): ChannelManager 通过捕获本异常向用户
+    发送明确错误消息，替代脆弱的异常消息字符串匹配。
+    """
+
+
 class RunExecutor(Protocol):
     """Channel layer's execution contract (graph-agnostic)."""
 
@@ -67,7 +75,7 @@ class LangGraphRunExecutor:
     def _resolve_graph(self) -> Any:
         graph = self._get_graph() if self._get_graph else None
         if graph is None:
-            raise RuntimeError("Agent graph not available")
+            raise AgentUnavailableError("Agent graph not available")
         return graph
 
     def _resolve_context(self, thread_id: str, fallback: dict[str, Any]) -> dict[str, Any]:
@@ -88,7 +96,9 @@ class LangGraphRunExecutor:
         graph = self._resolve_graph()
         config = {
             "configurable": {"thread_id": thread_id},
-            "recursion_limit": recursion_limit or self._default_recursion_limit,
+            "recursion_limit": recursion_limit
+            if recursion_limit is not None
+            else self._default_recursion_limit,
         }
         ctx = self._resolve_context(thread_id, context or {"thread_id": thread_id})
         return await graph.ainvoke(messages, config=config, context=ctx)
@@ -104,7 +114,9 @@ class LangGraphRunExecutor:
         graph = self._resolve_graph()
         config = {
             "configurable": {"thread_id": thread_id},
-            "recursion_limit": recursion_limit or self._default_recursion_limit,
+            "recursion_limit": recursion_limit
+            if recursion_limit is not None
+            else self._default_recursion_limit,
         }
         ctx = self._resolve_context(thread_id, context or {"thread_id": thread_id})
         async for event in graph.astream_events(

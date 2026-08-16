@@ -162,7 +162,9 @@ async def update_fact(fact_id: str, body: FactCreateRequest | None = None):
     """部分更新事实（content/category/confidence 可选）。"""
     store = _get_store()
     if body:
-        store.update_fact(fact_id, body.model_dump())
+        # v8.4-r: exclude_unset 只合并显式字段，避免默认值覆盖
+        # （Review 修复：原 model_dump 带默认值，PATCH 只改 content 会重置 category/confidence）
+        store.update_fact(fact_id, body.model_dump(exclude_unset=True))
     else:
         # 无 body 时视为仅更新内容为空——保持原事实不变
         current = None
