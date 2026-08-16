@@ -68,18 +68,19 @@ def _retry_invoke(agent: Any, input_dict: dict, step_name: str) -> dict:
 async def _invoke_with_retry(agent: Any, input_dict: dict, step_name: str) -> dict:
     """异步 Agent.invoke 包装 — 走 async_llm_call_with_retry 获得超时+重试保护。
 
-    v8.4-r (LLM 挂起修复): 改用 ``agent.ainvoke``（async）替代
-    ``run_in_executor(agent.invoke)``（同步线程）。
-
-    背景: 同步 invoke 在线程池中运行，``asyncio.wait_for`` 超时无法取消线程，
-    线程永久阻塞在 socket 读（DeepSeek API 对超长输入挂起不返回），
-    导致超时失效、无重试日志、setup 卡死数小时。
-    async ainvoke 的调用可被 wait_for 正常取消 → 900s 超时兜底生效。
+    v8.4-r: 保持 ``run_in_executor(agent.invoke)``（同步线程）——setup agent 是
+    RunnableLambda 包装的同步函数（内部自带 sync retry），``ainvoke`` 双重
+    包装会在事件循环内再次排队，实测导致外层永不返回（WorldBuilder 后卡死）。
+    同步 invoke 在线程池执行：超时由 langchain/httpx 900s 兜底（有界），
+    setup 卡死的真正根因（超长上下文）已由卷数裁剪修复解决。
     """
+    import asyncio
+
     from novelfactory.agents.infra.async_retry import async_llm_call_with_retry
 
     async def _invoke():
-        return await agent.ainvoke(input_dict)
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, agent.invoke, input_dict)
 
     result = await async_llm_call_with_retry(
         _invoke,
