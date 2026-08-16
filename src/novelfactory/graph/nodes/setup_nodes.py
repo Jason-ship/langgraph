@@ -68,16 +68,18 @@ def _retry_invoke(agent: Any, input_dict: dict, step_name: str) -> dict:
 async def _invoke_with_retry(agent: Any, input_dict: dict, step_name: str) -> dict:
     """异步 Agent.invoke 包装 — 走 async_llm_call_with_retry 获得超时+重试保护。
 
-    当前 agent 仍使用同步 .invoke()，通过 ThreadPoolExecutor 包装为异步。
-    未来创建 async agent 后可直接替换为 agent.ainvoke()。
-    """
-    import asyncio
+    v8.4-r (LLM 挂起修复): 改用 ``agent.ainvoke``（async）替代
+    ``run_in_executor(agent.invoke)``（同步线程）。
 
+    背景: 同步 invoke 在线程池中运行，``asyncio.wait_for`` 超时无法取消线程，
+    线程永久阻塞在 socket 读（DeepSeek API 对超长输入挂起不返回），
+    导致超时失效、无重试日志、setup 卡死数小时。
+    async ainvoke 的调用可被 wait_for 正常取消 → 900s 超时兜底生效。
+    """
     from novelfactory.agents.infra.async_retry import async_llm_call_with_retry
 
     async def _invoke():
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, agent.invoke, input_dict)
+        return await agent.ainvoke(input_dict)
 
     result = await async_llm_call_with_retry(
         _invoke,
@@ -293,11 +295,27 @@ async def volume_detail_writer_node(state: dict) -> dict:
 
     vd_agent = create_volume_detail_writer_agent(llm)
     volumes = volume_structure.get("volumes", [])
+
+    # v8.4-r (LLM 挂起修复): 按 target_chapters 裁剪卷数——每卷约 30-50 章。
+    # 原实现固定处理前 3 卷（每卷 35 章细节，上下文随卷数线性膨胀），
+    # target_chapters=1 时仍生成 3 卷 × 35 章 ≈ 100k+ token 输入，
+    # 触发 DeepSeek API 挂起不返回 → setup 卡死。
+    import math
+
+    needed_volumes = max(1, math.ceil(target_chapters / 30))
+    volumes_to_detail = volumes[: min(needed_volumes, len(volumes))]
+    logger.info(
+        "Step 3b: VolumeDetailWriter starting — target=%d 章 → 裁剪到 %d/%d 卷",
+        target_chapters,
+        len(volumes_to_detail),
+        len(volumes),
+    )
+
     first_3_volumes_detail: list[dict] = []
-    chapter_outlines_parts = ["## 章节大纲（前3卷）\n"]
+    chapter_outlines_parts = ["## 章节大纲（前几卷）\n"]
     previous_volume_summary = ""
 
-    for vol in volumes[:3]:
+    for vol in volumes_to_detail:
         vol_num = vol.get("volume_number", 0)
         vol_title = vol.get("title", "")
         ch_range = vol.get("chapter_range", [1, 40])
@@ -311,6 +329,7 @@ async def volume_detail_writer_node(state: dict) -> dict:
             if isinstance(ch_range, list) and len(ch_range) >= _CHAPTER_RANGE_SIZE_END
             else 40
         )
+        logger.info("VolumeDetailWriter V%d starting (ch %d-%d)...", vol_num, chapter_start, chapter_end)
 
         vd_input = {
             "messages": [],
