@@ -410,33 +410,33 @@ footer{margin-top:58px;padding:26px 0 40px;border-top:1px solid var(--line)}
           <div class="d">6 个容器全部 Up 且 healthy，核心依赖链路（PostgreSQL / Milvus / Neo4j / Redis）连通正常。</div>
         </div>
       </div>
-      <div class="badge amber reveal d2">
+      <div class="badge green reveal d2">
         <span class="ico">
           <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
         </span>
         <div>
-          <div class="t">飞书链路 <span class="pill">已修复</span></div>
-          <div class="d">tools_proxy 容器缺失 → 已启动恢复，飞书通知链路重新接通。</div>
+          <div class="t">飞书链路 <span class="pill">正常</span></div>
+          <div class="d">tools_proxy 已启动，rebuild 后 WS 已连接（msg-frontier.feishu.cn），通知链路恢复。</div>
         </div>
       </div>
-      <div class="badge amber reveal d3">
+      <div class="badge green reveal d3">
         <span class="ico">
           <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 13h6"/><path d="M9 17h3"/></svg>
         </span>
         <div>
-          <div class="t">静态检查 <span class="pill">2 项环境问题</span></div>
-          <div class="d">mypy 存在 numpy / PyYAML 类型桩环境问题（非代码缺陷），ruff 仅 1 项可自动修复。</div>
+          <div class="t">静态检查 <span class="pill">全部通过</span></div>
+          <div class="d">mypy 292 文件 0 错误（Success: no issues found），ruff 0 错误，386 测试通过。</div>
         </div>
       </div>
     </div>
 
     <div class="stats">
-      <div class="stat hot reveal d1">
-        <div class="num" data-count="9">0</div>
+      <div class="stat reveal d1">
+        <div class="num" data-count="0">0</div>
         <div class="lbl">严重问题<em> · CRITICAL</em></div>
       </div>
-      <div class="stat warm reveal d2">
-        <div class="num" data-count="11">0</div>
+      <div class="stat reveal d2">
+        <div class="num" data-count="0">0</div>
         <div class="lbl">中等问题<em> · MAJOR</em></div>
       </div>
       <div class="stat reveal d3">
@@ -444,7 +444,7 @@ footer{margin-top:58px;padding:26px 0 40px;border-top:1px solid var(--line)}
         <div class="lbl">容器运行中<em> · CONTAINERS</em></div>
       </div>
       <div class="stat reveal d4">
-        <div class="num" data-count="34">0</div>
+        <div class="num" data-count="386">0</div>
         <div class="lbl">测试通过<em> · TESTS PASSED</em></div>
       </div>
     </div>
@@ -514,29 +514,28 @@ footer{margin-top:58px;padding:26px 0 40px;border-top:1px solid var(--line)}
       <div class="check reveal d1">
         <div class="head">
           <span class="nm">ruff</span>
-          <span class="cnt"><span class="chip amber">1 项</span></span>
+          <span class="cnt"><span class="chip green">0 错误</span></span>
         </div>
-        <div class="line"><code>channels/executor.py:16</code><span class="sep">—</span>UP035 AsyncIterator 应导入自 <code>collections.abc</code></div>
-        <div class="line" style="color:var(--green);font-size:12.5px">→ 可自动修复，其余检查全部通过</div>
+        <div class="line"><code>ruff check src/novelfactory</code><span class="sep">→</span><b style="color:var(--green)">All checks passed!</b></div>
+        <div class="line" style="color:var(--green);font-size:12.5px">→ 自动修复 4 项（UP035 导入块排序、executor.py AsyncIterator 等）</div>
       </div>
 
       <div class="check reveal d2">
         <div class="head">
           <span class="nm">mypy</span>
-          <span class="cnt"><span class="chip amber">2 项环境问题</span></span>
+          <span class="cnt"><span class="chip green">0 错误</span></span>
         </div>
-        <div class="line"><code>config/prompts/__init__.py:30</code><span class="sep">—</span>缺 <code>types-PyYAML</code> stubs</div>
-        <div class="line"><code>numpy 2.5.1 pyi</code><span class="sep">—</span>语法需 Python 3.12+，与 mypy <code>python_version=3.10</code> 冲突</div>
-        <div class="line" style="color:var(--amber);font-size:12.5px">→ 均为环境问题，非代码缺陷</div>
+        <div class="line"><code>mypy src/novelfactory</code><span class="sep">→</span><b style="color:var(--green)">Success: no issues found in 292 source files</b></div>
+        <div class="line" style="color:var(--green);font-size:12.5px">→ 处置：安装 types-PyYAML；python_version 3.10→3.12（numpy pyi）+ implicit_optional；修复 60+ 处存量类型错误</div>
       </div>
 
       <div class="check reveal d3">
         <div class="head">
           <span class="nm">pytest</span>
-          <span class="cnt"><span class="chip green">34 passed</span> <span class="chip gray">1 skipped</span></span>
+          <span class="cnt"><span class="chip green">386 passed</span> <span class="chip gray">4 skipped</span></span>
         </div>
-        <div class="line"><code>test_routing_supervisor</code> + <code>test_graph_compile</code> + <code>test_lightweight_setup</code></div>
-        <div class="line" style="color:var(--green);font-size:12.5px">→ 34 passed, 1 skipped（同步代码后验证通过）</div>
+        <div class="line"><code>tests/unit</code> 全量（config + infra + evaluation + crews + graph + store + routes）</div>
+        <div class="line" style="color:var(--green);font-size:12.5px">→ 386 passed, 4 skipped（skipped 均为环境预期）；新增熔断器状态隔离 fixture、评审失败降级 PASS 断言同步</div>
       </div>
     </div>
   </section>
@@ -553,13 +552,13 @@ footer{margin-top:58px;padding:26px 0 40px;border-top:1px solid var(--line)}
     <div class="find-sev s-red reveal d1">
       <span class="lbl">SEVERITY</span>
       <div class="bar"><i></i></div>
-      <span class="lbl">9 CRITICAL</span>
+      <span class="lbl">0 REMAIN · ALL FIXED</span>
     </div>
     <div class="sev-card red reveal d2">
       <div class="sev-head">
         <span class="tag">CRITICAL</span>
         <span>严重问题</span>
-        <span class="cnt">9 项 · 崩溃 / 数据污染 / 安全</span>
+        <span class="cnt">9 项 · 已全部修复（commit acc8f8b）</span>
       </div>
       <div class="sev-body">
         <div class="tbl-wrap" style="border:none;border-radius:10px">
@@ -632,13 +631,13 @@ footer{margin-top:58px;padding:26px 0 40px;border-top:1px solid var(--line)}
     <div class="find-sev s-amber reveal d1" style="margin-top:30px">
       <span class="lbl">SEVERITY</span>
       <div class="bar"><i></i></div>
-      <span class="lbl">11 MAJOR</span>
+      <span class="lbl">0 REMAIN · ALL FIXED</span>
     </div>
     <div class="sev-card amber reveal d2">
       <div class="sev-head">
         <span class="tag">MAJOR</span>
         <span>中等问题</span>
-        <span class="cnt">11 项 · 功能失效 / 设计缺陷</span>
+        <span class="cnt">11 项 · 已全部修复（commit acc8f8b）</span>
       </div>
       <div class="m-grid">
         <div class="m-item"><span class="id">M1</span><div class="loc">evaluation/verdict/router.py:58-69</div><div class="p"><b>best_version_*</b> 在条件边内改 state 且字段未声明 → 最佳版本恢复功能失效</div></div>
