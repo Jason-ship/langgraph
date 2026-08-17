@@ -17,7 +17,8 @@ env/
 
 # IDE - all hidden directories and AI assistant configs (keep essential dotfiles only)
 .claude/
-.trae/
+.trae/*
+!.trae/rules/
 .dbg/
 .vscode/
 .idea/
