@@ -5,6 +5,24 @@ from __future__ import annotations
 from typing import Any
 
 
+def _resolve_agent_timeout_policy(step_name: str) -> tuple[float | None, str | None]:
+    """从 llm_param_center 查询 agent 级 timeout/retry_policy（v8.5-fix, M6）。
+
+    原实现中 llm_params.py 注册的 timeout_seconds/retry_policy 从未被消费，
+    所有调用点落到默认值（3 次 / 900s）。此处按 step_name 精确匹配注册的
+    agent 名，命中则返回对应值，未命中返回 None（调用方回退默认）。
+    """
+    try:
+        from novelfactory.config.llm_params import center as llm_param_center
+
+        params = llm_param_center.get_agent_params("worker", step_name)
+        if params:
+            return params.timeout_seconds, params.retry_policy
+    except Exception:
+        pass
+    return None, None
+
+
 def make_retry_agent_invoke(module_name: str):
     """Create a module-specific ``_retry_agent_invoke`` function.
 
@@ -28,10 +46,13 @@ def make_retry_agent_invoke(module_name: str):
         """
         from novelfactory.agents.infra.retry import llm_call_with_retry
 
+        timeout_seconds, retry_policy = _resolve_agent_timeout_policy(step_name)
         return llm_call_with_retry(
             agent.invoke,
             input_dict,
             step_name=f"{module_name}.{step_name}",
+            retry_policy=retry_policy or "default",
+            timeout_seconds=timeout_seconds or 900.0,
             fallback={"messages": [], "crew_result": {}},
         )
 
@@ -61,21 +82,17 @@ def make_retry_agent_ainvoke(module_name: str):
         """
         from novelfactory.agents.infra.async_retry import async_llm_call_with_retry
 
+        timeout_seconds, retry_policy = _resolve_agent_timeout_policy(step_name)
         return await async_llm_call_with_retry(
             agent.ainvoke,
             input_dict,
             step_name=f"{module_name}.{step_name}",
+            retry_policy=retry_policy or "default",
+            timeout_seconds=timeout_seconds or 900.0,
             fallback={"messages": [], "crew_result": {}},
         )
 
     return _retry_agent_ainvoke
-
-
-def _extract_from_state(state: dict, key: str, default: Any = "") -> Any:
-    """Read `key` from `state`, supporting both flat and crew_result layouts."""
-    if "crew_result" in state and isinstance(state.get("crew_result"), dict):
-        return state["crew_result"].get(key, default)
-    return state.get(key, default)
 
 
 def extract_fields_from_state(state: dict, fields: dict[str, Any]) -> dict[str, Any]:

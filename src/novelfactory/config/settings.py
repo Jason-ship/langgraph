@@ -24,11 +24,9 @@ _ENV_OVERRIDES: dict[str, str] = {
     "NOVELFACTORY_LOG_LEVEL": "LOG_LEVEL",
     "NOVELFACTORY_CHECKPOINT_TYPE": "CHECKPOINT_TYPE",
     "NOVELFACTORY_STORAGE_TYPE": "STORAGE_TYPE",
-    "NOVELFACTORY_QUOTA_CHECK_BEFORE_CALL": "QUOTA_CHECK_BEFORE_CALL",
     "NOVELFACTORY_MAX_RETRIES": "MAX_RETRIES",
     "NOVELFACTORY_CHAPTER_MIN_WORD_COUNT": "CHAPTER_MIN_WORD_COUNT",
     "NOVELFACTORY_CHAPTER_TARGET_WORD_COUNT": "CHAPTER_TARGET_WORD_COUNT",
-    "NOVELFACTORY_QUOTA_THRESHOLD": "QUOTA_THRESHOLD",
 }
 
 _BOOL_TRUE = ("true", "1", "yes", "on")
@@ -163,8 +161,8 @@ class Settings(BaseSettings):
     # ── Logging ────────────────────────────────────────────────────────────────
     LOG_LEVEL: str = Field(default="INFO", description="日志级别")
     LOG_FORMAT: str = Field(
-        default="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        description="日志格式",
+        default="text",
+        description="日志格式: text / json（v8.5-fix: 原默认值为 Python 格式串，与 logger.py 按 'json' 判断的语义错位）",
     )
 
     # ── Retry ─────────────────────────────────────────────────────────────────
@@ -173,15 +171,9 @@ class Settings(BaseSettings):
     RETRY_MAX_INTERVAL: float = Field(default=60.0, description="最大重试间隔(秒)")
 
     # ── Business ──────────────────────────────────────────────────────────────
-    QUOTA_THRESHOLD: float = Field(default=5.0, description="配额警告阈值(%)")
-    QUOTA_CHECK_BEFORE_CALL: bool = Field(
-        default=False,
-        description="是否在每次 LLM 调用前检查配额（启用严格预算控制）",
-    )
-    QUOTA_CHECK_INTERVAL_SECONDS: float = Field(
-        default=60.0,
-        description="配额检查最小间隔(秒)",
-    )
+    # v8.5-fix (M5): 删除 QUOTA_* 死字段 — 配额配置唯一来源是 config/quota.py
+    # （agents/infra/quota.py 只读取 QuotaSettings），此处重复定义无人消费，
+    # 且 _ENV_OVERRIDES 中对应条目映射到死字段（运维按文档配置无效）。
     CHAPTER_MIN_WORD_COUNT: int = Field(default=1500, description="章节最少字数")
     CHAPTER_TARGET_WORD_COUNT: int = Field(default=3000, description="章节目标字数")
     GRADE_C_THRESHOLD: int = Field(default=60, description="C级及格分数")
@@ -200,6 +192,14 @@ class Settings(BaseSettings):
     LARK_PROXY_PORT: int = Field(
         default=5004,
         description="tools-proxy 服务端口",
+    )
+    # v8.5-fix (S5): 显式声明 LARK_PROXY_URL 字段（pydantic 直接映射 env）。
+    # 原实现 env 注入被 extra=ignore 丢弃，且 lark_proxy_url 属性恒真导致
+    # _core.py 的 `or os.environ.get` 兜底短路，compose 意图 tools_proxy:5004 失效。
+    # 优先级：LARK_PROXY_URL env > LARK_PROXY_HOST/PORT 属性。
+    LARK_PROXY_URL: str = Field(
+        default="",
+        description="tools-proxy 完整 URL（优先于 HOST/PORT 组合）",
     )
     LARK_PROXY_ENABLED: bool = Field(
         default=True,
@@ -264,7 +264,8 @@ class Settings(BaseSettings):
 
     @property
     def lark_proxy_url(self) -> str:
-        return f"http://{self.LARK_PROXY_HOST}:{self.LARK_PROXY_PORT}"
+        # v8.5-fix (S5): LARK_PROXY_URL env 优先，否则回退 HOST/PORT 组合
+        return self.LARK_PROXY_URL or f"http://{self.LARK_PROXY_HOST}:{self.LARK_PROXY_PORT}"
 
     @property
     def database_url(self) -> str:
@@ -354,6 +355,10 @@ class Settings(BaseSettings):
                 for kw in ["key", "secret", "password", "token"]
             ):
                 value = "****" if len(str(value)) <= 8 else f"{str(value)[:4]}...{str(value)[-4:]}" if value else ""
+            # v8.5-fix (S9): URL 类字段内嵌凭据（postgresql://user:pass@host/...）
+            # 字段名不含 key/secret 等关键词，按值解析 userinfo 部分掩码。
+            elif field_name in ("DATABASE_URL", "REDIS_URL", "redis_url") and value:
+                value = self._mask_url_credentials(str(value))
             source = (
                 "ENV_OVERRIDE"
                 if field_name in _ENV_OVERRIDES.values()
@@ -361,6 +366,17 @@ class Settings(BaseSettings):
             )
             _logger.info("  %s = %s (%s)", field_name, value, source)
         _logger.info("========================")
+
+    @staticmethod
+    def _mask_url_credentials(url: str) -> str:
+        """掩码 URL userinfo 中的密码（postgresql://user:pass@ → user:***@）。"""
+        import re
+
+        return re.sub(
+            r"(://[^:/@]+:)[^@/]*@",
+            r"\1***@",
+            url,
+        )
 
     model_config = {  # type: ignore[assignment]
         "env_file": ".env",

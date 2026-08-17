@@ -230,7 +230,8 @@ class UnifiedReviewQueue:
 
         with self._FILE_LOCK:
             queue = self._read_sync()
-            kept, removed = [], []
+            kept: list[dict] = []
+            removed: list[dict] = []
             for raw in queue.get("completed", []):
                 decided_at_str = raw.get("decided_at")
                 if not decided_at_str:

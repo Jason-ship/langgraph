@@ -69,7 +69,7 @@ def resolve_class(class_path: str) -> type:
     Returns:
         The resolved class.
     """
-    result = resolve_variable(class_path)
+    result: object = resolve_variable(class_path)
     if not isinstance(result, type):
         raise ValueError(f"{class_path} is not a class (got {type(result).__name__})")
     return result

@@ -112,10 +112,10 @@ class TestUnifiedIntegration:
         assert verdict.level.value == "rewrite"
         assert verdict.has_severe_toxic is True
 
-    async def test_failed_review_rewrites(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """统一评审失败（failed）→ 未耗尽重写时转 REWRITE（防垃圾章假通过）。"""
+    async def test_failed_review_degrade_pass(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """统一评审失败（failed）→ 降级 PASS（v8.5-fix：评审失败≠质量差，避免 API 故障触发整章重写）。"""
         verdict, _ = await _run_evaluate(monkeypatch, _failed_review())
-        assert verdict.level.value == "rewrite"
+        assert verdict.level.value == "pass"
 
     async def test_exhausted_force_pass(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """双向次数用尽 → 强制 PASS（防死循环兜底）。"""

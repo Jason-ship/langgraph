@@ -26,8 +26,8 @@ def with_timeout(
         def wrapper(*args: Any, **kwargs: Any) -> T:
             import threading
 
-            result = [default]
-            exc_info = [None]
+            result: list = [default]
+            exc_info: list = [None]
             stopped = threading.Event()
 
             # 线程目标函数需要捕获所有异常以传播到主线程；这是标准的安全模式

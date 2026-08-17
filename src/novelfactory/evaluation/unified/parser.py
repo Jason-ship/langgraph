@@ -26,6 +26,14 @@ _RE_SEVERE = re.compile(r"severe", re.IGNORECASE)
 
 _DIM_KEY = {"剧情逻辑": "logic", "文笔": "writing", "人物": "character", "世界观": "world"}
 
+# 四维分项上限（满分 30/25/25/20，合计 100）— 防 LLM 越界输出
+_DIM_MAX = {"logic": 30.0, "writing": 25.0, "character": 25.0, "world": 20.0}
+
+
+def _clamp(value: float, low: float, high: float) -> float:
+    """钳制分数到 [low, high]，防止 LLM 越界输出击穿下游 pydantic 约束。"""
+    return max(low, min(high, value))
+
 
 def _first_float(text: str | None, default: float = 0.0) -> float:
     if not text:
@@ -60,11 +68,14 @@ def parse_review_output(raw: str) -> UnifiedReviewResult | None:
     if not m_final:
         return None
     result = UnifiedReviewResult(raw_text=raw)
-    result.final_score = float(m_final.group(1))
+    result.final_score = _clamp(float(m_final.group(1)), 0.0, 100.0)
     for m in _RE_DIM.finditer(raw):
         key = _DIM_KEY.get(m.group(1))
         if key:
-            setattr(result.four_dim, key, float(m.group(2)))
+            setattr(
+                result.four_dim, key,
+                _clamp(float(m.group(2)), 0.0, _DIM_MAX[key]),
+            )
     m_toxic = _RE_TOXIC.search(raw)
     if m_toxic:
         entries = []
@@ -88,16 +99,17 @@ def parse_review_output(raw: str) -> UnifiedReviewResult | None:
         result.shuangdian_count = len(result.shuangdian_points)
     m_ai = _RE_AI.search(raw)
     if m_ai:
-        result.human_like_score = _first_float(m_ai.group(1))
+        # human_like_score 语义为 0-1（下游 *100 展示），钳制到 [0,1]
+        result.human_like_score = _clamp(_first_float(m_ai.group(1)), 0.0, 1.0)
     m_attr = _RE_ATTR.search(raw)
     if m_attr:
-        result.attraction_score = _first_float(m_attr.group(1))
+        result.attraction_score = _clamp(_first_float(m_attr.group(1)), 0.0, 100.0)
     m_mm = _RE_MM.search(raw)
     if m_mm:
-        result.immersion_score = _first_float(m_mm.group(1))
+        result.immersion_score = _clamp(_first_float(m_mm.group(1)), 0.0, 100.0)
     m_cross = _RE_CROSS.search(raw)
     if m_cross:
-        result.cross_chapter_score = _first_float(m_cross.group(1))
+        result.cross_chapter_score = _clamp(_first_float(m_cross.group(1)), 0.0, 100.0)
     m_decay = _RE_DECAY.search(raw)
     if m_decay:
         result.decay_hint = m_decay.group(1).lower()

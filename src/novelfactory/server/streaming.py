@@ -198,7 +198,15 @@ async def _resolve_input_data(
         if input_data:
             logger.info("[run] Starting new run on thread=%s", thread_id)
             return input_data
-        return None
+
+        # Fail-closed (v8.4-r): 空闲线程（无 pending 任务）启动新 run 必须提供 input。
+        # 否则 setup 会在空 seed 下运行：WorldBuilder 空输入 → LLM 产出"请补充信息"，
+        # quality gate 0 分仍 setup_complete=True → 全链路基于空设定写作（污染设定库）。
+        logger.warning("[run] Refusing empty-input run on idle thread=%s", thread_id)
+        raise HTTPException(
+            status_code=400,
+            detail="无法启动运行：线程空闲且未提供 input（至少需要 seed_idea）",
+        )
     except (ValueError, OSError, RuntimeError, TimeoutError, ConnectionError):
         return input_data or None
 
@@ -341,12 +349,13 @@ async def _stream_run(
                             description = _NODE_DESCRIPTIONS.get(
                                 node_name, f"执行 {node_name}"
                             )
-                            task_event = subtask_tracker.start_subtask(
+                            task_event: dict | None = subtask_tracker.start_subtask(
                                 subtask_id=subtask_id,
                                 agent_type=node_name,
                                 description=description,
                             )
-                            yield task_event
+                            if task_event:
+                                yield task_event
 
                         if isinstance(node_update, dict) and tracker.update_from_state(
                             node_update

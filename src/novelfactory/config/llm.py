@@ -99,11 +99,9 @@ def _get_deepseek_config() -> dict[str, Any]:
 
     v6.1: 从 settings 读取为主，os.environ 兜底。
     """
-    api_key = (
-        getattr(settings, "DEEPSEEK_API_KEY", "")
-        or settings.ARK_API_KEY
-        or os.environ.get("OPENAI_API_KEY")
-    )
+    # v8.5-fix (M9): 移除 ARK/OPENAI 兜底 — ARK key 打 api.deepseek.com 必然
+    # 401 且掩盖真实配置错误；OPENAI_API_KEY 可能串用其他项目 key。
+    api_key = getattr(settings, "DEEPSEEK_API_KEY", "")
 
     return {
         "api_key": api_key,

@@ -13,7 +13,8 @@ ChannelManager 无需改动即可切换执行后端。
 from __future__ import annotations
 
 import logging
-from typing import Any, AsyncIterator, Protocol
+from collections.abc import AsyncIterator
+from typing import Any, Protocol
 
 logger = logging.getLogger(__name__)
 

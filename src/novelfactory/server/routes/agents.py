@@ -83,15 +83,19 @@ async def update_agent(name: str, req: UpdateAgentRequest) -> dict:
     if not agent:
         raise HTTPException(status_code=404, detail=f"Agent '{name}' not found")
 
-    updated = AgentRegistry.update(
-        name,
-        name=req.name,
-        description=req.description,
-        model=req.model,
-        tool_groups=req.tool_groups,
-        skills=req.skills,
-        soul=req.soul,
-    )
+    try:
+        updated = AgentRegistry.update(
+            name,
+            name=req.name,
+            description=req.description,
+            model=req.model,
+            tool_groups=req.tool_groups,
+            skills=req.skills,
+            soul=req.soul,
+        )
+    except ValueError as e:
+        # v8.5-fix (M10): 重命名目标已存在 → 409 冲突
+        raise HTTPException(status_code=409, detail=str(e)) from e
     if updated is None:
         raise HTTPException(status_code=500, detail="Failed to update agent")
     return updated.to_dict()

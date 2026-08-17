@@ -104,6 +104,19 @@ class WritingCrewLocalState(BaseCrewState):
     character_setting: str
     world_setting: str
     chapter_outlines: str
+    # ── Critic 前置大纲评估（v7.3，由 critic_pre_assessment_node 写入） ────
+    # v8.5-fix: 声明为路由字段（_critic_router 读取），此前未声明导致
+    # FAIL 分支被 LangGraph 未知 channel 丢弃，重规划路径永不触发。
+    critic_assessment: str
+    critic_feedback: str
+    # ── 低分人工指导（v7.3，由 _exit_for_chapter 写 True 穿透到父图） ─────
+    # v8.5-fix: 未声明时子图→父图合并被丢弃，HITL 分支永不触发。
+    chapter_needs_guidance: Annotated[bool, _last_value]
+    # ── 最佳版本保留（v7.4-fix，由 verdict_engine_node 保存 / _exit 恢复） ─
+    # v8.5-fix: 原实现在 verdict_router 条件边内直接改 state（不写回 checkpoint）
+    # 且未声明字段 → 恢复逻辑恒不触发；已迁移到 verdict_engine_node 显式写入。
+    best_version_text: str
+    best_version_quality: float
 
     # ── Temporary Fields (not persisted, cleared at subgraph exit) ───────────
     # These fields are used for in-flight communication between writing nodes
@@ -118,8 +131,6 @@ class WritingCrewLocalState(BaseCrewState):
     _temp_debate_strengths: list[str]
     _temp_debate_suggestions: str
     _temp_is_short_text: bool
-    _temp_critic_assessment: str
-    _temp_critic_feedback: str
     _temp_debate_transcript: str
     _temp_ai_style_metrics_brief: str
     _temp_cross_chapter_brief: str

@@ -113,7 +113,7 @@ async def cron_scheduler(app: FastAPI) -> None:
     while True:
         await asyncio.sleep(_CRON_POLL_INTERVAL)
         try:
-            graph = getattr(app.state, "graph", None)
+            graph: Any = getattr(app.state, "graph", None)
             store = getattr(graph, "store", None) if graph else None
             if store is None:
                 continue

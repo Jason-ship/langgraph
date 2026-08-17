@@ -2,12 +2,24 @@
 
 from __future__ import annotations
 
+import pytest
+
 from novelfactory.agents.infra.circuit_breaker import (
     circuit_breaker_get_status,
     circuit_breaker_is_open,
     circuit_breaker_record_failure,
     circuit_breaker_record_success,
 )
+
+_RESET_SERVICES = ("ark", "deepseek", "siliconflow", "matrix")
+
+
+@pytest.fixture(autouse=True)
+def _reset_circuit_state():
+    """每个测试后复位所有服务的熔断器，避免打开状态污染其他测试模块。"""
+    yield
+    for svc in _RESET_SERVICES:
+        circuit_breaker_record_success(svc)
 
 
 class TestCircuitBreakerSuccess:

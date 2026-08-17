@@ -32,7 +32,7 @@ class StreamWriter:
 
     @property
     def path(self) -> str:
-        return self._path
+        return str(self._path)
 
     def write(self, content: str) -> None:
         """Append content to the stream file (buffered batch flush, thread-safe)."""

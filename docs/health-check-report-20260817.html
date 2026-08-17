@@ -1,0 +1,860 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="dark">
+<title>NovelFactory 项目全面体检报告（2026-08-17）</title>
+<style>
+/* ============================================================
+   NovelFactory Health Check Report — 2026-08-17
+   完全自包含 · 无外部依赖 · 深色监控仪表盘主题
+   ============================================================ */
+:root{
+  --bg-0:#05080f;
+  --bg-1:#0a1120;
+  --bg-2:#0d1629;
+  --card:rgba(15,24,44,.72);
+  --card-solid:#0e1729;
+  --line:rgba(112,150,215,.14);
+  --line-strong:rgba(130,170,240,.28);
+  --text:#dce7f7;
+  --text-2:#9fb0cc;
+  --text-3:#64748f;
+  --cyan:#22d3ee;
+  --blue:#5b9df6;
+  --green:#34d399;
+  --green-soft:rgba(52,211,153,.10);
+  --amber:#f5b83d;
+  --amber-soft:rgba(245,184,61,.09);
+  --red:#fb7185;
+  --red-soft:rgba(251,113,133,.09);
+  --mono:"SF Mono","Cascadia Code","JetBrains Mono",Consolas,"Courier New",monospace;
+  --sans:"Segoe UI","PingFang SC","Microsoft YaHei","Helvetica Neue",system-ui,-apple-system,sans-serif;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  background:var(--bg-0);
+  color:var(--text);
+  font-family:var(--sans);
+  font-size:15px;
+  line-height:1.65;
+  -webkit-font-smoothing:antialiased;
+  overflow-x:hidden;
+}
+
+/* ---------- 背景氛围层 ---------- */
+.bg-fx{position:fixed;inset:0;z-index:-3;pointer-events:none;
+  background:
+    radial-gradient(1100px 520px at 18% -6%,rgba(37,99,235,.16),transparent 62%),
+    radial-gradient(900px 480px at 88% 4%,rgba(34,211,238,.10),transparent 60%),
+    radial-gradient(1000px 700px at 50% 118%,rgba(16,185,129,.07),transparent 60%),
+    linear-gradient(180deg,var(--bg-0),var(--bg-1) 38%,#070b14 100%);
+}
+.bg-grid{position:fixed;inset:0;z-index:-2;pointer-events:none;opacity:.55;
+  background-image:
+    linear-gradient(rgba(120,160,225,.045) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(120,160,225,.045) 1px,transparent 1px);
+  background-size:44px 44px;
+  -webkit-mask-image:radial-gradient(ellipse 92% 62% at 50% 0%,#000 42%,transparent 100%);
+  mask-image:radial-gradient(ellipse 92% 62% at 50% 0%,#000 42%,transparent 100%);
+}
+.bg-glow{position:fixed;inset:0;z-index:-1;pointer-events:none;overflow:hidden}
+.bg-glow::before{content:"";position:absolute;top:-320px;left:50%;transform:translateX(-50%);
+  width:1100px;height:520px;border-radius:50%;
+  background:radial-gradient(closest-side,rgba(45,116,255,.13),transparent);
+  filter:blur(30px);
+}
+
+/* ---------- 通用布局 ---------- */
+.wrap{max-width:1180px;margin:0 auto;padding:0 28px}
+section{position:relative;margin-top:44px}
+
+/* ---------- 入场动画 ---------- */
+@keyframes rise{from{opacity:0;transform:translateY(22px)}to{opacity:1;transform:none}}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes pulseDot{0%,100%{box-shadow:0 0 0 0 rgba(52,211,153,.55)}55%{box-shadow:0 0 0 7px rgba(52,211,153,0)}}
+@keyframes scanline{0%{transform:translateY(-120%)}100%{transform:translateY(220%)}}
+.reveal{opacity:0}
+.reveal.on{animation:rise .7s cubic-bezier(.22,.8,.32,1) both}
+.reveal.on.d1{animation-delay:.05s}
+.reveal.on.d2{animation-delay:.12s}
+.reveal.on.d3{animation-delay:.19s}
+.reveal.on.d4{animation-delay:.26s}
+.reveal.on.d5{animation-delay:.33s}
+
+/* ---------- 顶部标题区 ---------- */
+.hero{position:relative;margin-top:10px;border-radius:18px;overflow:hidden;
+  border:1px solid var(--line-strong);
+  background:
+    linear-gradient(135deg,rgba(30,58,138,.55),rgba(8,15,31,.88) 46%,rgba(8,47,73,.45)),
+    var(--bg-2);
+  box-shadow:0 26px 70px -28px rgba(0,0,0,.85),inset 0 1px 0 rgba(160,200,255,.10);
+}
+.hero::after{content:"";position:absolute;inset:0;pointer-events:none;
+  background:linear-gradient(100deg,transparent 42%,rgba(34,211,238,.05) 50%,transparent 58%);
+  animation:scanline 7s linear infinite;
+}
+.hero-topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;
+  padding:16px 26px;border-bottom:1px solid var(--line);
+}
+.hero-topbar .tag{display:inline-flex;align-items:center;gap:9px;
+  font-family:var(--mono);font-size:12px;letter-spacing:.14em;
+  color:var(--cyan);text-transform:uppercase;
+}
+.hero-topbar .tag .led{width:8px;height:8px;border-radius:50%;background:var(--cyan);
+  animation:pulseDot 2.2s infinite}
+.hero-topbar .meta{font-family:var(--mono);font-size:12px;color:var(--text-3);letter-spacing:.06em}
+.hero-body{padding:38px 26px 34px}
+.hero h1{font-size:clamp(24px,3.6vw,34px);font-weight:750;letter-spacing:.015em;line-height:1.3;
+  background:linear-gradient(92deg,#fff 8%,#bfe9ff 46%,var(--cyan) 88%);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+}
+.hero .sub{margin-top:10px;color:var(--text-2);font-size:15.5px}
+.hero .sub b{color:var(--cyan);font-family:var(--mono);font-weight:600}
+.hero-foot{display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-top:24px;
+  padding-top:18px;border-top:1px dashed var(--line);
+  font-family:var(--mono);font-size:12px;color:var(--text-3)}
+.hero-foot .kv{display:inline-flex;align-items:center;gap:7px}
+.hero-foot .kv i{font-style:normal;color:var(--text-2)}
+
+/* ---------- 摘要徽章卡 ---------- */
+.badge-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:18px;margin-top:-24px;
+  padding:0 26px;position:relative;z-index:2}
+.badge{display:flex;gap:14px;align-items:flex-start;padding:18px 20px;border-radius:14px;
+  background:var(--card);border:1px solid var(--line);
+  backdrop-filter:blur(10px);
+  box-shadow:0 14px 36px -20px rgba(0,0,0,.7),inset 0 1px 0 rgba(170,205,255,.06);
+  transition:transform .25s ease,border-color .25s ease,box-shadow .25s ease}
+.badge:hover{transform:translateY(-3px);border-color:var(--line-strong);
+  box-shadow:0 20px 44px -22px rgba(0,0,0,.8),0 0 0 1px rgba(120,170,255,.08)}
+.badge .ico{flex:0 0 auto;width:40px;height:40px;border-radius:11px;display:grid;place-items:center}
+.badge.green .ico{background:var(--green-soft);color:var(--green)}
+.badge.amber .ico{background:var(--amber-soft);color:var(--amber)}
+.badge .t{font-size:14.5px;font-weight:650;display:flex;align-items:center;gap:8px}
+.badge .pill{font-size:11px;font-weight:600;padding:2px 9px;border-radius:99px;letter-spacing:.03em}
+.badge.green .pill{color:var(--green);background:var(--green-soft);border:1px solid rgba(52,211,153,.35)}
+.badge.amber .pill{color:var(--amber);background:var(--amber-soft);border:1px solid rgba(245,184,61,.35)}
+.badge .d{margin-top:5px;font-size:13px;color:var(--text-2)}
+
+/* ---------- 统计横幅 ---------- */
+.stats{margin-top:22px;display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+.stat{position:relative;padding:22px 20px 20px;border-radius:14px;overflow:hidden;
+  background:linear-gradient(180deg,rgba(19,30,55,.85),rgba(12,20,38,.85));
+  border:1px solid var(--line);text-align:left}
+.stat::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;
+  background:linear-gradient(180deg,var(--cyan),transparent)}
+.stat .num{font-family:var(--mono);font-size:52px;font-weight:800;line-height:1;letter-spacing:-.02em;
+  background:linear-gradient(180deg,#f4f9ff,var(--cyan));
+  -webkit-background-clip:text;background-clip:text;color:transparent}
+.stat .lbl{margin-top:9px;font-size:13px;color:var(--text-2)}
+.stat .lbl em{font-style:normal;color:var(--text-3);font-size:11.5px;font-family:var(--mono)}
+.stat.hot .num{background:linear-gradient(180deg,#ffe9ee,var(--red));
+  -webkit-background-clip:text;background-clip:text;color:transparent}
+.stat.hot::before{background:linear-gradient(180deg,var(--red),transparent)}
+.stat.warm .num{background:linear-gradient(180deg,#fff3dd,var(--amber));
+  -webkit-background-clip:text;background-clip:text;color:transparent}
+.stat.warm::before{background:linear-gradient(180deg,var(--amber),transparent)}
+
+/* ---------- 区块标题 ---------- */
+.sec-head{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+.sec-head .no{font-family:var(--mono);font-size:13px;font-weight:700;color:var(--cyan);
+  border:1px solid rgba(34,211,238,.4);border-radius:8px;padding:3px 9px;
+  background:rgba(34,211,238,.07)}
+.sec-head h2{font-size:20px;font-weight:700;letter-spacing:.01em}
+.sec-head .sub-tip{margin-left:auto;font-family:var(--mono);font-size:11.5px;color:var(--text-3)}
+
+/* ---------- 卡片 ---------- */
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;
+  backdrop-filter:blur(10px);
+  box-shadow:0 18px 46px -26px rgba(0,0,0,.75),inset 0 1px 0 rgba(170,205,255,.05);
+  padding:24px 26px}
+.card h3{font-size:15.5px;font-weight:650;margin-bottom:14px;display:flex;align-items:center;gap:9px}
+.card h3 .ico{color:var(--cyan)}
+
+/* ---------- 表格 ---------- */
+.tbl-wrap{border:1px solid var(--line);border-radius:12px;overflow:hidden}
+table{width:100%;border-collapse:collapse;font-size:13.8px}
+thead th{background:linear-gradient(180deg,rgba(30,45,80,.9),rgba(22,34,62,.9));
+  color:var(--text-2);font-weight:600;font-size:12px;letter-spacing:.08em;text-align:left;
+  padding:11px 16px;border-bottom:1px solid var(--line-strong);white-space:nowrap}
+tbody td{padding:11px 16px;border-bottom:1px solid var(--line);vertical-align:top;color:var(--text)}
+tbody tr:nth-child(even){background:rgba(140,170,220,.035)}
+tbody tr{transition:background .18s ease}
+tbody tr:hover{background:rgba(90,150,255,.07)}
+tbody tr:last-child td{border-bottom:none}
+td .mono, .mono{font-family:var(--mono)}
+td.code, .code{font-family:var(--mono);font-size:12.6px;color:var(--text-2)}
+
+/* ---------- 状态灯 ---------- */
+.lamp{display:inline-flex;align-items:center;gap:8px;white-space:nowrap}
+.lamp .dot{width:9px;height:9px;border-radius:50%;flex:0 0 auto}
+.lamp.g .dot{background:var(--green);animation:pulseDot 2.4s infinite}
+.lamp.y .dot{background:var(--amber);box-shadow:0 0 10px rgba(245,184,61,.7)}
+.lamp.r .dot{background:var(--red)}
+.lamp .st{font-family:var(--mono);font-size:12.6px;font-weight:600}
+.lamp.g .st{color:var(--green)}
+.lamp.y .st{color:var(--amber)}
+.lamp.r .st{color:var(--red)}
+
+/* ---------- 徽章 ---------- */
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;
+  padding:2.5px 10px;border-radius:99px;letter-spacing:.02em}
+.chip.green{color:var(--green);background:var(--green-soft);border:1px solid rgba(52,211,153,.32)}
+.chip.cyan{color:var(--cyan);background:rgba(34,211,238,.08);border:1px solid rgba(34,211,238,.3)}
+.chip.amber{color:var(--amber);background:var(--amber-soft);border:1px solid rgba(245,184,61,.32)}
+.chip.red{color:var(--red);background:var(--red-soft);border:1px solid rgba(251,113,133,.34)}
+.chip.gray{color:var(--text-3);background:rgba(148,163,184,.08);border:1px solid rgba(148,163,184,.22)}
+
+/* ---------- 修复过程时间线 ---------- */
+.steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-top:20px}
+.step{position:relative;padding:16px 18px 15px 20px;border-radius:12px;
+  background:linear-gradient(180deg,rgba(19,30,55,.6),rgba(11,19,36,.6));
+  border:1px solid var(--line);border-left:3px solid var(--cyan)}
+.step .n{font-family:var(--mono);font-size:11px;font-weight:700;color:var(--cyan);letter-spacing:.1em}
+.step .t{margin-top:5px;font-size:13.2px;color:var(--text)}
+.step .t b{color:var(--text);font-weight:650}
+.step .t code{font-family:var(--mono);font-size:12.2px;background:rgba(34,211,238,.08);
+  color:var(--cyan);padding:1px 6px;border-radius:5px;border:1px solid rgba(34,211,238,.22)}
+
+/* ---------- 静态检查卡 ---------- */
+.checks{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+.check{padding:18px 20px;border-radius:13px;border:1px solid var(--line);
+  background:linear-gradient(180deg,rgba(17,28,52,.7),rgba(11,19,36,.7))}
+.check .head{display:flex;align-items:center;gap:10px;margin-bottom:11px}
+.check .head .nm{font-family:var(--mono);font-size:13px;font-weight:700;color:var(--text)}
+.check .head .cnt{margin-left:auto}
+.check .line{display:flex;gap:9px;font-size:13px;color:var(--text-2);padding:4px 0}
+.check .line .sep{color:var(--text-3)}
+.check .line code{font-family:var(--mono);font-size:12.2px;color:var(--blue);
+  background:rgba(91,157,246,.08);padding:0 6px;border-radius:5px;white-space:nowrap}
+
+/* ---------- 代码审查 ---------- */
+.find-sev{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+.find-sev .bar{flex:1;height:6px;border-radius:99px;overflow:hidden;background:rgba(148,163,184,.12)}
+.find-sev .bar i{display:block;height:100%;border-radius:99px}
+.find-sev.s-red .bar i{width:45%;background:linear-gradient(90deg,var(--red),rgba(251,113,133,.25))}
+.find-sev.s-amber .bar i{width:55%;background:linear-gradient(90deg,var(--amber),rgba(245,184,61,.25))}
+.find-sev .lbl{font-family:var(--mono);font-size:12px;color:var(--text-3);white-space:nowrap}
+
+.sev-card{border-radius:16px;overflow:hidden;border:1px solid}
+.sev-card.red{border-color:rgba(251,113,133,.32);
+  background:linear-gradient(180deg,rgba(80,20,34,.34),rgba(16,12,22,.55));
+  box-shadow:0 20px 50px -30px rgba(251,113,133,.35)}
+.sev-card.amber{border-color:rgba(245,184,61,.3);
+  background:linear-gradient(180deg,rgba(70,52,16,.28),rgba(16,14,22,.5));
+  box-shadow:0 20px 50px -30px rgba(245,184,61,.28)}
+.sev-head{display:flex;align-items:center;gap:11px;padding:14px 20px;border-bottom:1px solid}
+.sev-card.red .sev-head{border-color:rgba(251,113,133,.2);background:rgba(251,113,133,.06)}
+.sev-card.amber .sev-head{border-color:rgba(245,184,61,.18);background:rgba(245,184,61,.05)}
+.sev-head .tag{font-family:var(--mono);font-size:12.5px;font-weight:800;letter-spacing:.08em}
+.sev-card.red .tag{color:var(--red)}
+.sev-card.amber .tag{color:var(--amber)}
+.sev-head .cnt{margin-left:auto;font-family:var(--mono);font-size:12px}
+.sev-card.red .cnt{color:var(--red)}
+.sev-card.amber .cnt{color:var(--amber)}
+.sev-body{padding:6px 6px 8px}
+
+/* 严重问题表格 */
+table.s-table thead th{background:rgba(251,113,133,.05)}
+table.s-table td{font-size:13.4px}
+table.s-table td.num{font-family:var(--mono);font-weight:800;color:var(--red);white-space:nowrap;width:44px}
+table.s-table td.loc{white-space:nowrap;font-family:var(--mono);font-size:12.4px;color:var(--text-2)}
+table.s-table td.loc .sub{color:var(--text-3)}
+table.s-table td.issue{min-width:290px}
+table.s-table td.issue b{font-weight:650;color:#ffe4e8}
+table.s-table td.impact{color:var(--text-2)}
+table.s-table td.impact .arrow{color:var(--red);font-weight:700}
+
+/* 中等问题 */
+.m-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:12px;padding:12px}
+.m-item{position:relative;padding:13px 15px 13px 44px;border-radius:11px;
+  background:rgba(245,184,61,.04);border:1px solid rgba(245,184,61,.16);
+  transition:background .2s ease,border-color .2s ease}
+.m-item:hover{background:rgba(245,184,61,.08);border-color:rgba(245,184,61,.34)}
+.m-item .id{position:absolute;left:13px;top:13px;font-family:var(--mono);font-size:12px;font-weight:800;
+  color:var(--amber);border:1px solid rgba(245,184,61,.4);border-radius:7px;
+  width:23px;height:23px;display:grid;place-items:center}
+.m-item .loc{font-family:var(--mono);font-size:11.8px;color:var(--text-3);margin-bottom:3px}
+.m-item .p{font-size:13px;color:var(--text)}
+.m-item .p b{font-weight:600;color:#ffe8c2}
+
+/* 轻微问题 */
+.minor-list{list-style:none}
+.minor-list li{display:flex;gap:10px;padding:8px 0;font-size:13.4px;color:var(--text-2);
+  border-bottom:1px dashed var(--line)}
+.minor-list li:last-child{border-bottom:none}
+.minor-list li::before{content:"";flex:0 0 auto;width:6px;height:6px;border-radius:2px;
+  background:var(--blue);margin-top:8px;transform:rotate(45deg)}
+.minor-list li code{font-family:var(--mono);font-size:12.2px;color:var(--text);
+  background:rgba(148,163,184,.1);padding:0 6px;border-radius:5px}
+
+/* ---------- 配置一致性 ---------- */
+.cfg-row{display:grid;grid-template-columns:150px 1fr auto;align-items:center;gap:16px;
+  padding:13px 4px;border-bottom:1px dashed var(--line);font-size:13.8px}
+.cfg-row:last-child{border-bottom:none}
+.cfg-row .name{font-weight:650;color:var(--text)}
+.cfg-row .name code{font-family:var(--mono);font-size:12.6px}
+.cfg-row .val{color:var(--text-2);font-size:13px}
+.cfg-row .st{font-family:var(--mono);font-size:12.6px;font-weight:700;color:var(--green);
+  display:inline-flex;align-items:center;gap:7px}
+.warn{margin-top:16px;display:flex;gap:13px;padding:14px 17px;border-radius:12px;
+  background:rgba(245,184,61,.07);border:1px solid rgba(245,184,61,.32)}
+.warn .w-ico{flex:0 0 auto;color:var(--amber);margin-top:2px}
+.warn .t{font-size:13.4px;color:var(--text)}
+.warn .t code{font-family:var(--mono);font-size:12.4px;color:var(--amber);
+  background:rgba(245,184,61,.1);padding:1px 7px;border-radius:6px}
+
+/* ---------- 修复优先级 ---------- */
+.prio{display:grid;grid-template-columns:repeat(auto-fit,minmax(255px,1fr));gap:15px}
+.prio-card{border-radius:14px;padding:18px 20px;border:1px solid var(--line);
+  background:linear-gradient(180deg,rgba(17,28,52,.65),rgba(11,19,36,.65))}
+.prio-card .pt{display:flex;align-items:center;gap:9px;font-size:14px;font-weight:700;margin-bottom:12px}
+.prio-card .pt .bar-ico{width:26px;height:26px;border-radius:8px;display:grid;place-items:center}
+.prio-card.urgent .pt{color:#ffd9de}
+.prio-card.urgent .pt .bar-ico{background:var(--red-soft);color:var(--red)}
+.prio-card.high .pt{color:#ffe8c2}
+.prio-card.high .pt .bar-ico{background:var(--amber-soft);color:var(--amber)}
+.prio-card.mid .pt{color:#cfe3ff}
+.prio-card.mid .pt .bar-ico{background:rgba(91,157,246,.12);color:var(--blue)}
+.prio-card.clean .pt{color:#cbd5e1}
+.prio-card.clean .pt .bar-ico{background:rgba(148,163,184,.12);color:var(--text-3)}
+.prio-list{list-style:none;display:flex;flex-direction:column;gap:9px}
+.prio-list li{display:flex;gap:9px;font-size:13.2px;color:var(--text-2);line-height:1.55}
+.prio-list li::before{content:"";flex:0 0 auto;width:6px;height:6px;border-radius:50%;margin-top:7px}
+.prio-card.urgent .prio-list li::before{background:var(--red)}
+.prio-card.high .prio-list li::before{background:var(--amber)}
+.prio-card.mid .prio-list li::before{background:var(--blue)}
+.prio-card.clean .prio-list li::before{background:var(--text-3)}
+.prio-list code{font-family:var(--mono);font-size:12px;color:var(--text);
+  background:rgba(148,163,184,.12);padding:0 5px;border-radius:4px}
+
+/* ---------- 页脚 ---------- */
+footer{margin-top:58px;padding:26px 0 40px;border-top:1px solid var(--line)}
+.foot-inner{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap}
+.foot-inner .gen{font-size:12.5px;color:var(--text-3);font-family:var(--mono);letter-spacing:.04em}
+.foot-inner .gen b{color:var(--cyan);font-weight:700}
+.foot-inner .ver{font-family:var(--mono);font-size:11.5px;color:var(--text-3)}
+
+/* ---------- 响应式 ---------- */
+@media (max-width:900px){
+  .stats{grid-template-columns:repeat(2,1fr)}
+  .stat .num{font-size:42px}
+  .badge-grid{margin-top:0;padding:0}
+}
+@media (max-width:560px){
+  .stats{grid-template-columns:1fr 1fr;gap:11px}
+  .stat .num{font-size:34px}
+  .stat{padding:16px 15px 15px}
+  .hero-body{padding:28px 20px 26px}
+  .tbl-wrap{overflow-x:auto}
+  table{min-width:620px}
+  .cfg-row{grid-template-columns:1fr;gap:4px}
+  .m-grid{grid-template-columns:1fr}
+}
+
+/* ---------- 打印 ---------- */
+@media print{
+  body{background:#fff;color:#1e293b}
+  .bg-fx,.bg-grid,.bg-glow{display:none}
+  .card,.sev-card,.prio-card,.check,.step,.badge{background:#fff;border-color:#cbd5e1;
+    box-shadow:none;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .hero{background:#f1f5f9}
+  .hero h1{color:#0f172a;-webkit-text-fill-color:#0f172a}
+  .stat .num{-webkit-text-fill-color:#0369a1}
+  tbody tr:nth-child(even){background:#f8fafc}
+}
+</style>
+</head>
+<body>
+
+<div class="bg-fx"></div>
+<div class="bg-grid"></div>
+<div class="bg-glow"></div>
+
+<div class="wrap">
+
+  <!-- ==================== 顶部标题区 ==================== -->
+  <header class="hero reveal">
+    <div class="hero-topbar">
+      <span class="tag"><span class="led"></span>Health Check Report</span>
+      <span class="meta">2026-08-17 · v1.0 · TraeCode 体检流程</span>
+    </div>
+    <div class="hero-body">
+      <h1>NovelFactory 项目全面体检报告（2026-08-17）</h1>
+      <p class="sub">副标题 · <b>Windows 服务器运行态</b> + 本地源码静态审查</p>
+      <div class="hero-foot">
+        <span class="kv">体检日期 <i>2026-08-17</i></span>
+        <span class="kv">体检范围 <i>服务器（D:\langgraph）运行态 + 本地 P0/P1 模块静态审查</i></span>
+        <span class="kv">容器总数 <i>6</i></span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ==================== 一、执行摘要 ==================== -->
+  <section>
+    <div class="sec-head reveal">
+      <span class="no">01</span>
+      <h2>执行摘要</h2>
+      <span class="sub-tip">SUMMARY</span>
+    </div>
+
+    <div class="badge-grid">
+      <div class="badge green reveal d1">
+        <span class="ico">
+          <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.1V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4 12 14.01l-3-3"/></svg>
+        </span>
+        <div>
+          <div class="t">服务运行 <span class="pill">正常</span></div>
+          <div class="d">6 个容器全部 Up 且 healthy，核心依赖链路（PostgreSQL / Milvus / Neo4j / Redis）连通正常。</div>
+        </div>
+      </div>
+      <div class="badge amber reveal d2">
+        <span class="ico">
+          <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+        </span>
+        <div>
+          <div class="t">飞书链路 <span class="pill">已修复</span></div>
+          <div class="d">tools_proxy 容器缺失 → 已启动恢复，飞书通知链路重新接通。</div>
+        </div>
+      </div>
+      <div class="badge amber reveal d3">
+        <span class="ico">
+          <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 13h6"/><path d="M9 17h3"/></svg>
+        </span>
+        <div>
+          <div class="t">静态检查 <span class="pill">2 项环境问题</span></div>
+          <div class="d">mypy 存在 numpy / PyYAML 类型桩环境问题（非代码缺陷），ruff 仅 1 项可自动修复。</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stats">
+      <div class="stat hot reveal d1">
+        <div class="num" data-count="9">0</div>
+        <div class="lbl">严重问题<em> · CRITICAL</em></div>
+      </div>
+      <div class="stat warm reveal d2">
+        <div class="num" data-count="11">0</div>
+        <div class="lbl">中等问题<em> · MAJOR</em></div>
+      </div>
+      <div class="stat reveal d3">
+        <div class="num" data-count="6">0</div>
+        <div class="lbl">容器运行中<em> · CONTAINERS</em></div>
+      </div>
+      <div class="stat reveal d4">
+        <div class="num" data-count="34">0</div>
+        <div class="lbl">测试通过<em> · TESTS PASSED</em></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 二、服务运行状态 ==================== -->
+  <section>
+    <div class="sec-head reveal">
+      <span class="no">02</span>
+      <h2>服务运行状态</h2>
+      <span class="sub-tip">SERVICES</span>
+    </div>
+
+    <div class="card reveal d1">
+      <h3>
+        <span class="ico">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/><path d="M6 16h.01"/><path d="M10 16h.01"/></svg>
+        </span>
+        容器状态 · Windows 服务器（100.64.0.6）
+      </h3>
+      <div class="tbl-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>容器</th>
+              <th>状态</th>
+              <th>说明</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td class="mono" style="color:var(--cyan)">langgraph_api</td><td><span class="lamp g"><span class="dot"></span><span class="st">Up (healthy)</span></span></td><td>v8.0.0，内存 408MiB / 8GiB</td></tr>
+            <tr><td class="mono" style="color:var(--cyan)">langgraph_postgres</td><td><span class="lamp g"><span class="dot"></span><span class="st">Up (healthy)</span></span></td><td>pgvector:pg16</td></tr>
+            <tr><td class="mono" style="color:var(--cyan)">langgraph_redis</td><td><span class="lamp g"><span class="dot"></span><span class="st">Up (healthy)</span></span></td><td>redis:6-alpine</td></tr>
+            <tr><td class="mono" style="color:var(--cyan)">langgraph_milvus</td><td><span class="lamp g"><span class="dot"></span><span class="st">Up (healthy)</span></span></td><td>v2.4.17</td></tr>
+            <tr><td class="mono" style="color:var(--cyan)">langgraph_neo4j</td><td><span class="lamp g"><span class="dot"></span><span class="st">Up (healthy)</span></span></td><td>neo4j:5</td></tr>
+            <tr><td class="mono" style="color:var(--cyan)">langgraph_tools_proxy</td><td><span class="lamp g"><span class="dot"></span><span class="st">Up</span></span></td><td><span class="chip amber">本次新启动</span> 飞书通知链路恢复</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card reveal d2" style="margin-top:18px">
+      <h3>
+        <span class="ico">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+        </span>
+        修复过程简述
+      </h3>
+      <div class="steps">
+        <div class="step"><div class="n">STEP 01</div><div class="t">日志出现 <code>tools-proxy 不可用</code>，飞书通知失败。</div></div>
+        <div class="step"><div class="n">STEP 02</div><div class="t">根因：<b>tools_proxy 容器未运行</b> + 默认目录存在损坏 compose 文件。</div></div>
+        <div class="step"><div class="n">STEP 03</div><div class="t">切换到实际目录 <code>D:\langgraph</code>。</div></div>
+        <div class="step"><div class="n">STEP 04</div><div class="t">用 <code>DOCKER_CONFIG</code> 无凭据配置拉取基础镜像后 <code>compose up</code>，构建启动成功。</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 三、静态检查 ==================== -->
+  <section>
+    <div class="sec-head reveal">
+      <span class="no">03</span>
+      <h2>静态检查（本地）</h2>
+      <span class="sub-tip">STATIC ANALYSIS</span>
+    </div>
+
+    <div class="checks">
+      <div class="check reveal d1">
+        <div class="head">
+          <span class="nm">ruff</span>
+          <span class="cnt"><span class="chip amber">1 项</span></span>
+        </div>
+        <div class="line"><code>channels/executor.py:16</code><span class="sep">—</span>UP035 AsyncIterator 应导入自 <code>collections.abc</code></div>
+        <div class="line" style="color:var(--green);font-size:12.5px">→ 可自动修复，其余检查全部通过</div>
+      </div>
+
+      <div class="check reveal d2">
+        <div class="head">
+          <span class="nm">mypy</span>
+          <span class="cnt"><span class="chip amber">2 项环境问题</span></span>
+        </div>
+        <div class="line"><code>config/prompts/__init__.py:30</code><span class="sep">—</span>缺 <code>types-PyYAML</code> stubs</div>
+        <div class="line"><code>numpy 2.5.1 pyi</code><span class="sep">—</span>语法需 Python 3.12+，与 mypy <code>python_version=3.10</code> 冲突</div>
+        <div class="line" style="color:var(--amber);font-size:12.5px">→ 均为环境问题，非代码缺陷</div>
+      </div>
+
+      <div class="check reveal d3">
+        <div class="head">
+          <span class="nm">pytest</span>
+          <span class="cnt"><span class="chip green">34 passed</span> <span class="chip gray">1 skipped</span></span>
+        </div>
+        <div class="line"><code>test_routing_supervisor</code> + <code>test_graph_compile</code> + <code>test_lightweight_setup</code></div>
+        <div class="line" style="color:var(--green);font-size:12.5px">→ 34 passed, 1 skipped（同步代码后验证通过）</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 四、代码审查发现 ==================== -->
+  <section>
+    <div class="sec-head reveal">
+      <span class="no">04</span>
+      <h2>代码审查发现</h2>
+      <span class="sub-tip">P0/P1 MODULES · KEY FINDINGS REVIEWED</span>
+    </div>
+
+    <!-- 严重问题 -->
+    <div class="find-sev s-red reveal d1">
+      <span class="lbl">SEVERITY</span>
+      <div class="bar"><i></i></div>
+      <span class="lbl">9 CRITICAL</span>
+    </div>
+    <div class="sev-card red reveal d2">
+      <div class="sev-head">
+        <span class="tag">CRITICAL</span>
+        <span>严重问题</span>
+        <span class="cnt">9 项 · 崩溃 / 数据污染 / 安全</span>
+      </div>
+      <div class="sev-body">
+        <div class="tbl-wrap" style="border:none;border-radius:10px">
+          <table class="s-table">
+            <thead>
+              <tr><th>#</th><th>位置</th><th>问题</th><th>影响</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="num">S1</td>
+                <td class="loc">coordinator.py:226-232</td>
+                <td class="issue">降级分支写 <b>programmatic_score=50.0</b>，违反 Field(le=1.0) 约束</td>
+                <td class="impact"><span class="arrow">→</span> 评审失败降级路径二次抛错，<b>评审节点崩溃</b>（已复核）</td>
+              </tr>
+              <tr>
+                <td class="num">S2</td>
+                <td class="loc">unified/parser.py + arbitration.py</td>
+                <td class="issue">LLM 输出越界分数无钳制</td>
+                <td class="impact"><span class="arrow">→</span> VerdictResult 构造 ValidationError，<b>主评审路径连锁崩溃</b></td>
+              </tr>
+              <tr>
+                <td class="num">S3</td>
+                <td class="loc">coordinator.py:193-199</td>
+                <td class="issue">轻量复查 PASS 不含四维标签</td>
+                <td class="impact"><span class="arrow">→</span> <b>quality_score=0 写入章节</b>，污染质量数据</td>
+              </tr>
+              <tr>
+                <td class="num">S4</td>
+                <td class="loc">graph/routing.py:104-133</td>
+                <td class="issue">setup_aborted 仅 PHASE_SETUP 分支检查</td>
+                <td class="impact"><span class="arrow">→</span> <b>fail-closed 不完整</b>，空设定仍可能进入写作</td>
+              </tr>
+              <tr>
+                <td class="num">S5</td>
+                <td class="loc">config/settings.py + feishu/_core.py</td>
+                <td class="issue">LARK_PROXY_URL env 被 pydantic 丢弃 + lark_proxy_url 属性短路</td>
+                <td class="impact"><span class="arrow">→</span> compose 意图 <b>tools_proxy:5004 失效</b></td>
+              </tr>
+              <tr>
+                <td class="num">S6</td>
+                <td class="loc">writing_crew.py + critic_pre.py</td>
+                <td class="issue">critic_assessment 未在子图 schema 声明</td>
+                <td class="impact"><span class="arrow">→</span> <b>Critic 前置评估 FAIL 分支永久失效</b>（恒读 PASS）</td>
+              </tr>
+              <tr>
+                <td class="num">S7</td>
+                <td class="loc">writing_nodes/routing.py:260</td>
+                <td class="issue">chapter_needs_guidance 未在子图声明</td>
+                <td class="impact"><span class="arrow">→</span> 低分章节人工指导（HITL）<b>永不触发</b></td>
+              </tr>
+              <tr>
+                <td class="num">S8</td>
+                <td class="loc">graph/routing.py:86-95</td>
+                <td class="issue">检查链进度推断基于跨章残留状态字段</td>
+                <td class="impact"><span class="arrow">→</span> 第 2 章起 quality/foreshadowing 检查被跳过（已复核）</td>
+              </tr>
+              <tr>
+                <td class="num">S9</td>
+                <td class="loc">config/settings.py:349-362</td>
+                <td class="issue">启动日志按字段名掩码，DATABASE_URL / REDIS_URL 内嵌密码不掩码</td>
+                <td class="impact"><span class="arrow">→</span> <b>日志泄露 DB/Redis 明文密码</b></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- 中等问题 -->
+    <div class="find-sev s-amber reveal d1" style="margin-top:30px">
+      <span class="lbl">SEVERITY</span>
+      <div class="bar"><i></i></div>
+      <span class="lbl">11 MAJOR</span>
+    </div>
+    <div class="sev-card amber reveal d2">
+      <div class="sev-head">
+        <span class="tag">MAJOR</span>
+        <span>中等问题</span>
+        <span class="cnt">11 项 · 功能失效 / 设计缺陷</span>
+      </div>
+      <div class="m-grid">
+        <div class="m-item"><span class="id">M1</span><div class="loc">evaluation/verdict/router.py:58-69</div><div class="p"><b>best_version_*</b> 在条件边内改 state 且字段未声明 → 最佳版本恢复功能失效</div></div>
+        <div class="m-item"><span class="id">M2</span><div class="loc">evaluation/unified/engine.py:57-72</div><div class="p">仲裁在 consistency check <b>之后</b>执行，高分仲裁可绕过硬约束放行毒点章节</div></div>
+        <div class="m-item"><span class="id">M3</span><div class="loc">evaluation/verdict/engine.py:204-205</div><div class="p">LLM 评审失败降级为 REWRITE，<b>一次 API 故障触发整章重写</b></div></div>
+        <div class="m-item"><span class="id">M4</span><div class="loc">state/chapter_state.py:338</div><div class="p"><b>word_inventory</b> 合并对 LLM 畸形 JSON 无保护</div></div>
+        <div class="m-item"><span class="id">M5</span><div class="loc">config/settings.py + config/quota.py</div><div class="p">配额配置双源，settings 的 <b>QUOTA_* 死配置</b></div></div>
+        <div class="m-item"><span class="id">M6</span><div class="loc">config/llm_params.py:312-434</div><div class="p">retry_policy / timeout 注册值全部未消费（实际用默认 3 次 / 900s）</div></div>
+        <div class="m-item"><span class="id">M7</span><div class="loc">agents/infra/llm_cache.py</div><div class="p"><b>cache_prompt 无调用点</b>，缓存未接线且有碰撞风险</div></div>
+        <div class="m-item"><span class="id">M8</span><div class="loc">agents/infra/retry.py:136-148</div><div class="p">429 分支失败计数双计 → <b>熔断阈值提前触发</b></div></div>
+        <div class="m-item"><span class="id">M9</span><div class="loc">config/llm.py:102-106</div><div class="p">DeepSeek 兜底链含<b>已停用 ARK key</b>，串用掩盖配置错误</div></div>
+        <div class="m-item"><span class="id">M10</span><div class="loc">agents/registry.py:62-78</div><div class="p">重命名冲突时对象 <b>name 与 dict key 不一致</b></div></div>
+        <div class="m-item"><span class="id">M11</span><div class="loc">graph/nodes/setup_nodes.py:366-370</div><div class="p">LLM 输出<b>直接下标索引</b>，缺键抛 KeyError</div></div>
+      </div>
+    </div>
+
+    <!-- 轻微问题 -->
+    <div class="find-sev reveal d1" style="margin-top:30px">
+      <span class="lbl">SEVERITY</span>
+      <div class="bar" style="background:rgba(148,163,184,.12)"><i style="display:block;height:100%;width:30%;border-radius:99px;background:linear-gradient(90deg,var(--text-3),rgba(148,163,184,.2))"></i></div>
+      <span class="lbl">MINOR · 摘要</span>
+    </div>
+    <div class="card reveal d2">
+      <h3>
+        <span class="ico">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
+        </span>
+        轻微问题摘要
+      </h3>
+      <ul class="minor-list">
+        <li>四维评分定义三处分裂（review_schemas / unified/schemas / 规则文档不一致）</li>
+        <li><code>_fix_llm_json</code> 双括号正则笔误（setup_agents.py:292）</li>
+        <li><code>ch_range[0]</code> 空列表 IndexError（setup_agents.py:594）</li>
+        <li><code>LOG_FORMAT</code> 默认值与判断逻辑错位（Python 格式串 vs json 分支）</li>
+        <li>docker-compose 默认口令硬编码</li>
+        <li>若干死代码（lightweight_setup._retry_invoke、monitor_node.build_monitor_node、infra/helpers._extract_from_state 等）</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ==================== 五、配置一致性 ==================== -->
+  <section>
+    <div class="sec-head reveal">
+      <span class="no">05</span>
+      <h2>配置一致性</h2>
+      <span class="sub-tip">LOCAL ↔ SERVER SYNC</span>
+    </div>
+
+    <div class="card reveal d1">
+      <h3>
+        <span class="ico">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+        </span>
+        本地 / 服务器同步状态
+      </h3>
+      <div class="cfg-row">
+        <span class="name"><code>.env</code></span>
+        <span class="val">本地与服务器密钥配置逐项比对</span>
+        <span class="st">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+          完全一致
+        </span>
+      </div>
+      <div class="cfg-row">
+        <span class="name"><code>docker-compose.yml</code></span>
+        <span class="val">服务编排定义一致</span>
+        <span class="st">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+          内容一致（仅行尾符差异）
+        </span>
+      </div>
+      <div class="cfg-row">
+        <span class="name"><code>核心源码（5 文件）</code></span>
+        <span class="val">v8.4-r 未提交修复已同步本地，含重复 docstring / import 顺序修复</span>
+        <span class="st">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+          已同步（v8.4-r 修复）
+        </span>
+      </div>
+
+      <div class="warn">
+        <span class="w-ico">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+        </span>
+        <div class="t">警告：服务器存在损坏残留文件 <code>C:\Users\16842\docker-compose.yaml</code>（仅 2 行残留内容），若在默认目录执行 compose 会解析失败。<b>建议清理。</b></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 六、修复优先级 ==================== -->
+  <section>
+    <div class="sec-head reveal">
+      <span class="no">06</span>
+      <h2>修复优先级建议</h2>
+      <span class="sub-tip">REMEDIATION PLAN</span>
+    </div>
+
+    <div class="prio">
+      <div class="prio-card urgent reveal d1">
+        <div class="pt">
+          <span class="bar-ico">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+          </span>
+          立即修复（崩溃级）
+        </div>
+        <ul class="prio-list">
+          <li><code>S1</code> coordinator.py 改 programmatic_score=0.5</li>
+          <li><code>S2</code> parser / arbitration 统一 clamp</li>
+          <li><code>M11 / M3</code> 下标防护 + LLM 失败降级</li>
+        </ul>
+      </div>
+
+      <div class="prio-card high reveal d2">
+        <div class="pt">
+          <span class="bar-ico">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+          </span>
+          高优先级（功能失效）
+        </div>
+        <ul class="prio-list">
+          <li><code>S6 / S7</code> 子图 schema 声明字段</li>
+          <li><code>S5</code> LARK_PROXY_URL 修正</li>
+          <li><code>S4</code> setup_aborted 统一拦截</li>
+        </ul>
+      </div>
+
+      <div class="prio-card mid reveal d3">
+        <div class="pt">
+          <span class="bar-ico">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+          </span>
+          中优先级（质量 / 安全）
+        </div>
+        <ul class="prio-list">
+          <li><code>S9</code> 日志密码掩码</li>
+          <li><code>S8</code> 检查链重构</li>
+          <li><code>S3</code> quality_score 兜底</li>
+        </ul>
+      </div>
+
+      <div class="prio-card clean reveal d4">
+        <div class="pt">
+          <span class="bar-ico">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+          </span>
+          清理项
+        </div>
+        <ul class="prio-list">
+          <li>服务器残留损坏 compose 文件</li>
+          <li>mypy 环境（types-PyYAML + numpy pyi）</li>
+          <li>死代码清理</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 页脚 ==================== -->
+  <footer>
+    <div class="foot-inner">
+      <span class="gen">报告生成：<b>TraeCode 体检流程</b> · 2026-08-17</span>
+      <span class="ver">NovelFactory v8.0.0 · Docker 运行态体检 + P0/P1 源码审查 · 未修改任何业务逻辑</span>
+    </div>
+  </footer>
+
+</div>
+
+<script>
+(function(){
+  "use strict";
+  /* ---------- 滚动入场 ---------- */
+  var els = document.querySelectorAll(".reveal");
+  if("IntersectionObserver" in window){
+    var io = new IntersectionObserver(function(entries){
+      entries.forEach(function(en){
+        if(en.isIntersecting){
+          en.target.classList.add("on");
+          io.unobserve(en.target);
+        }
+      });
+    },{threshold:.12,rootMargin:"0px 0px -6% 0px"});
+    els.forEach(function(el){io.observe(el);});
+  }else{
+    els.forEach(function(el){el.classList.add("on");});
+  }
+
+  /* ---------- 统计数字滚动 ---------- */
+  function animateCount(el){
+    var target = parseInt(el.getAttribute("data-count"),10);
+    if(isNaN(target)){el.textContent = "0";return;}
+    var dur = 950, t0 = null;
+    function tick(ts){
+      if(!t0){t0 = ts;}
+      var p = Math.min((ts - t0) / dur, 1);
+      var eased = 1 - Math.pow(1 - p, 3);
+      el.textContent = String(Math.round(target * eased));
+      if(p < 1){requestAnimationFrame(tick);}
+      else{el.textContent = String(target);}
+    }
+    requestAnimationFrame(tick);
+  }
+  var counters = document.querySelectorAll("[data-count]");
+  if("IntersectionObserver" in window){
+    var cio = new IntersectionObserver(function(entries){
+      entries.forEach(function(en){
+        if(en.isIntersecting){
+          animateCount(en.target);
+          cio.unobserve(en.target);
+        }
+      });
+    },{threshold:.5});
+    counters.forEach(function(c){cio.observe(c);});
+  }else{
+    counters.forEach(function(c){c.textContent = c.getAttribute("data-count");});
+  }
+})();
+</script>
+
+</body>
+</html>

@@ -9,7 +9,7 @@ LangGraph 不提供全局 before_node/after_node 钩子，
 from __future__ import annotations
 
 import inspect
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import Any, Optional
 
 from langchain_core.runnables import RunnableConfig
@@ -17,11 +17,15 @@ from langgraph.graph.state import CompiledStateGraph
 
 from novelfactory.middleware.base import MiddlewareChain
 
+NodeFunc = Callable[..., dict[str, Any]]
+AsyncNodeFunc = Callable[..., Awaitable[dict[str, Any]]]
+WrappedNodeFunc = NodeFunc | AsyncNodeFunc
+
 
 def with_middleware(
-    node_fn: Callable[..., dict[str, Any]],
+    node_fn: NodeFunc,
     chain: MiddlewareChain,
-) -> Callable[..., dict[str, Any]]:
+) -> WrappedNodeFunc:
     """将中间件链包装到 LangGraph 节点函数上。
 
     对于 compiled subgraph（CompiledStateGraph），包装为 async wrapper
@@ -42,9 +46,9 @@ def with_middleware(
 
 
 def _make_sync_wrapper(
-    node_fn: Callable[..., dict[str, Any]],
+    node_fn: NodeFunc,
     chain: MiddlewareChain,
-) -> Callable[..., dict[str, Any]]:
+) -> NodeFunc:
     """Create a synchronous middleware wrapper for a sync node function."""
 
     def wrapped(
@@ -72,9 +76,9 @@ def _make_sync_wrapper(
 
 
 def _make_async_wrapper(
-    node_fn: Callable[..., dict[str, Any]],
+    node_fn: Callable[..., Awaitable[dict[str, Any]]],
     chain: MiddlewareChain,
-) -> Callable[..., dict[str, Any]]:
+) -> AsyncNodeFunc:
     """Create an asynchronous middleware wrapper for an async node function."""
 
     async def async_wrapped(
@@ -104,7 +108,7 @@ def _make_async_wrapper(
 def _make_subgraph_wrapper(
     compiled: CompiledStateGraph,
     chain: MiddlewareChain,
-) -> Callable[..., dict[str, Any]]:
+) -> AsyncNodeFunc:
     """Create an async middleware wrapper for a compiled subgraph.
 
     包装 CompiledStateGraph 使中间件 before_node/after_node 钩子

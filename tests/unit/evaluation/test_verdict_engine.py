@@ -101,10 +101,11 @@ class TestDecideUnifiedLevel:
         level = engine._decide_unified_level(80.0, r, _attempt())
         assert level == VerdictLevel.REWRITE
 
-    def test_failed_review_rewrites(self, engine: VerdictEngine) -> None:
+    def test_failed_review_degrade_pass(self, engine: VerdictEngine) -> None:
+        # v8.5-fix: 统一评审失败（API 故障等）→ 降级 PASS，不触发整章重写
         r = UnifiedReviewResult(failed=True, final_score=60.0)
         level = engine._decide_unified_level(60.0, r, _attempt())
-        assert level == VerdictLevel.REWRITE
+        assert level == VerdictLevel.PASS
 
     def test_exhausted_force_pass(self, engine: VerdictEngine) -> None:
         r = _ok_review()

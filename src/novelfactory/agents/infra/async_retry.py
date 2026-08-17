@@ -151,20 +151,26 @@ async def async_llm_call_with_retry(
             _record_provider_success()
 
             # v5.4: 写入 LLM 响应缓存
-            if cache_prompt and isinstance(result, dict):
+            # v8.5-fix (M7): result 含 LangChain Message 对象无法 json.dumps
+            # （必然抛异常被 except 吞掉 → 缓存形同虚设），改用 extract_ai_message_text
+            # 提取纯文本缓存；get 命中时返回 str，调用方需按文本处理。
+            if cache_prompt:
                 try:
+                    from novelfactory.agents.infra.helpers import (
+                        extract_ai_message_text,
+                    )
                     from novelfactory.agents.infra.llm_cache import get_llm_cache
 
                     cache = get_llm_cache()
                     if cache.available:
-                        import json as _json
-
-                        await cache.set(
-                            cache_model,
-                            cache_temperature,
-                            cache_prompt,
-                            _json.dumps(result, ensure_ascii=False),
-                        )
+                        text = extract_ai_message_text(result)
+                        if text:
+                            await cache.set(
+                                cache_model,
+                                cache_temperature,
+                                cache_prompt,
+                                text,
+                            )
                 except Exception:
                     pass
 

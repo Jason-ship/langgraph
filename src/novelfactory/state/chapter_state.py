@@ -334,11 +334,22 @@ JSON格式：
         if word_sys:
             new_inventory = word_sys.get("word_inventory", [])
             if new_inventory:
-                # Merge: replace matching names, append new ones
-                existing_map = {w["name"]: w for w in self._word_inventory}
-                for w in new_inventory:
-                    existing_map[w["name"]] = w
-                self._word_inventory = list(existing_map.values())
+                # v8.5-fix: 对 LLM 畸形条目（非 dict / 缺 name）做防御，
+                # 避免 KeyError/TypeError 击穿 state_extractor 链路。
+                valid_items = [
+                    w for w in new_inventory
+                    if isinstance(w, dict) and w.get("name")
+                ]
+                if valid_items:
+                    existing_map = {w["name"]: w for w in self._word_inventory}
+                    for w in valid_items:
+                        existing_map[w["name"]] = w
+                    self._word_inventory = list(existing_map.values())
+                elif valid_items != new_inventory:
+                    logging.getLogger(__name__).warning(
+                        "[ChapterStateTracker] word_inventory 含 %d 个畸形条目（非 dict 或缺 name），已跳过",
+                        len(new_inventory) - len(valid_items),
+                    )
             if "word_equipped" in word_sys:
                 self._word_equipped = word_sys["word_equipped"]
             if "word_slots" in word_sys:

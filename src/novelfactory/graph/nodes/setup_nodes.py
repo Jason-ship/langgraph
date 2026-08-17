@@ -364,9 +364,17 @@ async def volume_detail_writer_node(state: dict) -> dict:
             f"\n### 第{vol_num}卷《{vol_title}》（第{chapter_start}-{chapter_end}章）\n"
         )
         for ch in ch_outlines:
+            # v8.5-fix (M11): LLM 输出缺键时用 get 兜底，避免 KeyError 崩溃整个 setup
+            if not isinstance(ch, dict):
+                logger.warning(
+                    "[volume_detail_writer] 忽略畸形章节条目: %s", ch
+                )
+                continue
             chapter_outlines_parts.append(
-                f"  第{ch['chapter_number']}章《{ch['title']}》：{ch['core_events']}"
-                f"（悬念：{ch['cliffhanger']}，重要性：{ch['importance']}/10）\n"
+                f"  第{ch.get('chapter_number', '?')}章《{ch.get('title', '无题')}》："
+                f"{ch.get('core_events', '')}"
+                f"（悬念：{ch.get('cliffhanger', '无')}，"
+                f"重要性：{ch.get('importance', '?')}/10）\n"
             )
 
         previous_volume_summary = vol.get("summary", "")
@@ -765,10 +773,11 @@ async def db_persist_node(state: dict) -> dict:
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-async def init_setup_node(state: dict) -> dict:
-    """Setup 入口节点：初始化流式文件 + 重置用量追踪。
+async def init_setup_node(state: dict) -> dict | Command:
+    """Setup 入口节点：初始化流式文件 + 用量重置。
 
     如果 setup 已完成，跳过并返回 setup_complete 标记。
+    如果 seed_idea 为空，直接中止 setup（fail-closed，见下）。
     """
     # Guard: skip re-running if setup already completed (checkpoint recovery)
     if state.get("setup_complete", False):
@@ -778,6 +787,7 @@ async def init_setup_node(state: dict) -> dict:
             return {
                 "current_phase": "writing",
                 "setup_complete": True,
+                "setup_aborted": False,
             }
         logger.info(
             "[setup_crew] Setup complete but folder_tokens missing, retrying folders..."
@@ -798,8 +808,32 @@ async def init_setup_node(state: dict) -> dict:
         return {
             "current_phase": "writing",
             "setup_complete": True,
+            "setup_aborted": False,
             "folder_tokens": folder_tokens,
         }
+
+    # v8.4-r Fail-closed: 空 seed 直接中止 setup（不调用任何 LLM）。
+    # 触发场景：API 层校验被绕过（chat/bridge 直连、历史 checkpoint 无 seed）。
+    # 若不中止：WorldBuilder 空输入 → LLM 产出"请补充信息" → quality gate 0 分
+    # 仍 setup_complete=True → 全链路基于空设定写作，污染设定库与章节。
+    if not str(state.get("seed_idea", "") or "").strip():
+        logger.error(
+            "[setup_crew] seed_idea 为空，中止 setup（防止空设定污染写作链路）"
+        )
+        return Command(
+            graph=Command.PARENT,
+            update={
+                "setup_aborted": True,
+                "current_phase": "setup",
+                "messages": [
+                    AIMessage(
+                        content="## Setup 中止\n\n未提供创意输入（seed_idea）。"
+                        "请携带 seed_idea / genre / project_name 重新发起运行。",
+                        name="setup_abort",
+                    ),
+                ],
+            },
+        )
 
     reset_usage_tracking()
 
@@ -833,6 +867,9 @@ async def init_setup_node(state: dict) -> dict:
     return {
         "_streaming_path": streaming_path,
         "messages": messages,
+        # v8.5-fix: 有效 seed 重新发起时复位 setup_aborted，解除同线程
+        # 重试死路（原标记 _last_value 持久化后永远路由 END，setup 无法再跑）。
+        "setup_aborted": False,
     }
 
 

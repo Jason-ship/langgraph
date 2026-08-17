@@ -70,6 +70,9 @@ class UnifiedReviewEngine:
                             disagreements=severe_dsg,
                             old_score=result.final_score,
                         )
+                        # v8.5-fix: 仲裁可能把分数拉回硬约束（severe 毒点 cap 70 /
+                        # 无爽点 cap 65）之上，重新执行自洽校验防绕过。
+                        apply_consistency_check(result)
                     result.failed = False
                     result.retried = attempt > 0
                     return result

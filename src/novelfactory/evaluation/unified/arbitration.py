@@ -28,8 +28,10 @@ def parse_arbitration(raw: str) -> dict | None:
     if not m:
         return None
     m_action = _RE_ACTION.search(raw)
+    # 钳制到 0-100，防 LLM 仲裁输出越界分数击穿 VerdictResult 的 pydantic 约束
+    new_score = max(0.0, min(100.0, float(m.group(1))))
     return {
-        "new_score": float(m.group(1)),
+        "new_score": new_score,
         "action": m_action.group(1).upper() if m_action else "REFINE",
     }
 

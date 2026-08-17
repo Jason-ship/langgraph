@@ -285,7 +285,10 @@ class ChannelManager:
                 await self._reject_unbound_channel_message(msg, bound_identity_rejection=bound_identity_rejection)
                 return
 
-            async with self._semaphore:
+            semaphore = self._semaphore
+            if semaphore is None:
+                semaphore = asyncio.Semaphore(self._max_concurrency)
+            async with semaphore:
                 if msg.msg_type == InboundMessageType.COMMAND:
                     await self._handle_command(msg)
                 else:

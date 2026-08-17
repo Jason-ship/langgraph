@@ -9,6 +9,7 @@ v6.1: _summarize 接入 LLM 生成语义摘要，失败时降级为字符串拼�
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from langchain_core.messages import AIMessage, SystemMessage
 
@@ -30,7 +31,7 @@ class SummarizationMiddleware(Middleware):
     def __init__(self, trigger: int = 100, keep: int = 20):
         self.trigger = trigger
         self.keep = keep
-        self._llm = None
+        self._llm: Any = None
 
     def _get_llm(self):
         """延迟获取 LLM 实例。"""

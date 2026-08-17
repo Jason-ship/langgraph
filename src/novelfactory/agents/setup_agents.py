@@ -289,17 +289,19 @@ def _fix_llm_json(raw: str) -> str | None:
     raw = re.sub(r"\s*```\s*$", "", raw)
 
     # 2. 修复 LLM 用「」代替 "" 包裹字符串值的情况
+    # v8.5-fix: 原正则写成双括号「「...」」，与 LLM 实际输出的单括号不匹配，
+    # 该修复模式从未生效。
     raw = re.sub(
-        r'"(title|theme|summary|story_theme)"\s*:\s*「「([^」]*)」」',
+        r'"(title|theme|summary|story_theme)"\s*:\s*「([^」]*)」',
         r'"\1": "\2"',
         raw,
     )
     raw = re.sub(
-        r'"(volume_number|chapter_range|key_arcs|total_volumes)"\s*:\s*「「([^」]*)」」',
+        r'"(volume_number|chapter_range|key_arcs|total_volumes)"\s*:\s*「([^」]*)」',
         r'"\1": \2',
         raw,
     )
-    raw = re.sub(r":\s*「「([^」]*)」」", r': "\1"', raw)
+    raw = re.sub(r":\s*「([^」]*)」", r': "\1"', raw)
 
     # 3. 尝试标准解析
     for s in (raw, raw.strip()):
@@ -592,9 +594,12 @@ def create_outline_writer_agent(llm: BaseChatModel) -> Runnable:
             )
             for vol in volumes:
                 ch_range = vol.get("chapter_range", [0, 0])
+                # v8.5-fix: LLM 输出空列表时防 IndexError
+                ch_start = ch_range[0] if isinstance(ch_range, list) and ch_range else 0
+                ch_end = ch_range[1] if isinstance(ch_range, list) and len(ch_range) > 1 else ch_start
                 story_outline += (
                     f"  第{vol.get('volume_number', 0)}卷《{vol.get('title', '')}》"
-                    f"（第{ch_range[0]}-{ch_range[1]}章）：{vol.get('summary', '')}\n"
+                    f"（第{ch_start}-{ch_end}章）：{vol.get('summary', '')}\n"
                 )
         else:
             # JSON 解析失败时的降级处理

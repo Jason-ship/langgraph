@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from dataclasses import replace
 from pathlib import Path
 
 from novelfactory.skills.parser import parse_skill_file
@@ -41,7 +42,7 @@ class SkillStorage:
                 if skill_dir.is_dir():
                     skill = parse_skill_file(skill_dir, SkillCategory.PUBLIC)
                     if skill:
-                        skill.enabled = True
+                        skill = replace(skill, enabled=True)
                         skills.append(skill)
 
         # 加载 custom 技能

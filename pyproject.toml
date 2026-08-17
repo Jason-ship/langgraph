@@ -132,11 +132,16 @@ ignore = ["E501"]
 "__init__.py" = ["F401"]
 
 [tool.mypy]
-python_version = "3.10"
+# v8.5-fix: python_version 3.10 → 3.12 — numpy 2.5+ 的 pyi 使用 Python 3.12+
+# type 语句语法，3.10 目标无法解析导致 mypy 整体失败（环境问题）。
+# implicit_optional=true：保持 PEP 484 兼容（3.11+ 默认收紧 implicit Optional，
+# 代码库存量参数默认 None 未标注 Optional，避免一次性大量报错）。
+python_version = "3.12"
 check_untyped_defs = true
 ignore_missing_imports = true
 allow_untyped_decorators = true
 warn_unused_ignores = true
+implicit_optional = true
 
 # ── Per-module overrides (known third-party / generated code) ────────
 [[tool.mypy.overrides]]

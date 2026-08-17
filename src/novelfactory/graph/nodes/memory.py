@@ -46,7 +46,7 @@ async def save_longterm_memory(
     try:
         from novelfactory.utils.wall_time_tracker import create_tracker_from_state
 
-        tracker = create_tracker_from_state(state)
+        tracker = create_tracker_from_state(dict(state))
         if tracker._records:
             report = tracker.report()
             logger.info("[store] WallTime Report:\n%s", report)
@@ -65,7 +65,7 @@ async def save_longterm_memory(
     namespace = ("novelfactory", project_id)
 
     completed = state.get("completed_chapters", [])
-    meta = {
+    meta: dict[str, object] = {
         "genre": state.get("genre", ""),
         "target_chapters": state.get("target_chapters", 0),
         "completed_count": len(completed),
@@ -83,10 +83,12 @@ async def save_longterm_memory(
                 send_progress_notification,
             )
 
+            completed_count = meta.get("completed_count") or 0
+            target_chapters = meta.get("target_chapters") or 0
             send_progress_notification(
                 thread_id=thread_id,
-                chapter=meta.get("completed_count", 0),
-                total=meta.get("target_chapters", 0),
+                chapter=int(completed_count) if isinstance(completed_count, (int, float, str)) else 0,
+                total=int(target_chapters) if isinstance(target_chapters, (int, float, str)) else 0,
             )
         except Exception as e:
             logger.warning("[store] Feishu completion notification failed: %s", e)
@@ -110,7 +112,7 @@ async def save_longterm_memory(
                 )
                 cfg = {"configurable": {"thread_id": thread_id}} if thread_id else None
                 asyncio.create_task(
-                    maybe_cleanup_checkpoints(state, config=cfg, checkpointer=cp)
+                    maybe_cleanup_checkpoints(dict(state), config=cfg, checkpointer=cp)
                 )
         except Exception as e:
             logger.warning("[checkpoint] 清理检查点时出错: %s", e)

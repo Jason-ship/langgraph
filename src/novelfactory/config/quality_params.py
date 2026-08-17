@@ -538,12 +538,13 @@ class QualityParameterCenter:
             data = await store.hgetall(self._REDIS_KEY_CURRENT)
             if data:
                 with self._lock:
-                    for key, val in data.items():
-                        if isinstance(val, str):
+                    for key, raw_val in data.items():
+                        val: Any = raw_val
+                        if isinstance(raw_val, str):
                             try:
-                                val = json.loads(val)
+                                val = json.loads(raw_val)
                             except json.JSONDecodeError:
-                                pass
+                                val = raw_val
                         spec = PARAM_REGISTRY.get(key)
                         if spec:
                             if spec.value_type is float:
@@ -602,7 +603,13 @@ class QualityParameterCenter:
             raw = json.loads(path.read_text(encoding="utf-8"))
             if isinstance(raw, dict):
                 with self._lock:
-                    for key, val in raw.get("overrides", {}).items():
+                    for key, raw_val in raw.get("overrides", {}).items():
+                        val: Any = raw_val
+                        if isinstance(raw_val, str):
+                            try:
+                                val = json.loads(raw_val)
+                            except json.JSONDecodeError:
+                                val = raw_val
                         spec = PARAM_REGISTRY.get(key)
                         if spec:
                             if spec.value_type is float:

@@ -60,7 +60,10 @@ from novelfactory.graph.nodes.prepare_writing import prepare_writing_node
 from novelfactory.graph.nodes.quota import refresh_quota_node
 from novelfactory.graph.nodes.review import chapter_human_guidance, wait_for_review_node
 from novelfactory.graph.nodes.supervisor import main_supervisor_node
-from novelfactory.graph.routing import route_from_supervisor, route_phase_check_chain
+from novelfactory.graph.routing import (
+    make_check_chain_router,
+    route_from_supervisor,
+)
 from novelfactory.middleware import get_middleware_chain, with_middleware
 from novelfactory.state.novel_state import NovelFactoryState
 
@@ -171,8 +174,13 @@ def build_novel_factory_graph() -> StateGraph:
         "main_supervisor",
     ]
     _check_chain_map = {k: k for k in _check_chain_keys}
+    # v8.5-fix (S8): 每个检查节点绑定独立路由闭包，直接从"当前完成节点"
+    # 路由到链中下一项；旧 route_phase_check_chain 基于跨章持久化状态字段
+    # 推断进度，第 2 章起误判链尾导致 quality/foreshadowing 检查被跳过。
     for spec in PHASE_CHECK_SPECS:
-        graph.add_conditional_edges(spec.key, route_phase_check_chain, _check_chain_map)
+        graph.add_conditional_edges(
+            spec.key, make_check_chain_router(spec.key), _check_chain_map
+        )
     graph.add_edge("load_memory", "main_supervisor")
     graph.add_edge("save_memory", END)
     graph.add_edge("refresh_quota", "prepare_writing")

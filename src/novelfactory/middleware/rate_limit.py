@@ -212,7 +212,7 @@ class RateLimitMiddleware:
         )
 
         try:
-            pipeline = self._redis.pipeline()  # type: ignore[union-attr]
+            pipeline = self._redis.pipeline()
 
             # 移除窗口外的旧记录
             pipeline.zremrangebyscore(window_key, 0, window_start * 1000)
@@ -226,7 +226,7 @@ class RateLimitMiddleware:
             # 设置 TTL
             pipeline.expire(window_key, self.window_seconds * 2)
 
-            _, _, count, _ = await pipeline.execute()  # type: ignore[union-attr]
+            _, _, count, _ = await pipeline.execute()
 
             remaining = max(0, limit - int(count))
             allowed = remaining > 0

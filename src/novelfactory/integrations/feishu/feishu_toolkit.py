@@ -110,8 +110,18 @@ class FeishuToolkit:
     """
 
     def __init__(self, lark_proxy_url: str = ""):
+        # v8.5-fix (S5): 显式传参优先，否则回退 settings 解析的 URL
+        # （settings 已支持 LARK_PROXY_URL env 优先，保证 compose 注入生效）
         if lark_proxy_url:
             _core._LARK_PROXY_URL = lark_proxy_url
+        else:
+            try:
+                from novelfactory.config.settings import settings as _st
+
+                if _st.lark_proxy_url:
+                    _core._LARK_PROXY_URL = _st.lark_proxy_url
+            except ImportError:
+                pass
 
         self._engine = _LarkCLIEngine
 

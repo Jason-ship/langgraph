@@ -115,6 +115,8 @@ class MilvusStore:
             self._connected = False
 
     def _get_existing_dim(self) -> int | None:
+        if not self._client:
+            return None
         try:
             desc = self._client.describe_collection(self.COLLECTION_NAME)
             for field in desc.get("fields", []):
@@ -142,7 +144,7 @@ class MilvusStore:
         v6.1: 添加运行时调用计数日志。
         """
         logger.info("[Milvus] store_embedding project=%s chapter=%s", project, chapter)
-        if not self._connected:
+        if not self._connected or not self._client:
             return
         try:
             self._client.insert(
@@ -167,7 +169,7 @@ class MilvusStore:
         v6.1: 添加运行时调用计数日志。
         """
         logger.info("[Milvus] search_similar top_k=%s project=%s", top_k, project)
-        if not self._connected:
+        if not self._connected or not self._client:
             return []
         try:
             expr = f'project_name == "{project}"' if project else ""

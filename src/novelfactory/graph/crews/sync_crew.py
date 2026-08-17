@@ -103,6 +103,21 @@ def _feishu_sync_node(state: SyncCrewLocalState) -> dict[str, Any]:
     sw.write(f"[sync_crew] 开始上传第{current_ch}章内容到飞书...\n")
     logger.info("[sync_crew] 开始上传第%s章到飞书", current_ch)
 
+    # v8.4-r: tools-proxy 可达性预检 — 不可达时直接跳过（不调用 LLM、不重试）。
+    # 否则每章 3 次 LLM 重试 + fallback_summary，浪费 ~2-3 分钟/章。
+    from novelfactory.config.settings import settings as _st
+
+    if _st.LARK_PROXY_ENABLED and not _lark_proxy_reachable():
+        sw.write("[sync_crew] tools-proxy 不可达，跳过同步\n")
+        logger.warning(
+            "[sync_crew] tools-proxy 不可达，跳过第%s章同步", current_ch
+        )
+        return {
+            "feishu_doc_url": "",
+            "feishu_upload_error": "",
+            "feishu_retry_count": 0,
+        }
+
     # Create and invoke FeishuSync agent
     # Pass the FULL subgraph state (incl. folder_tokens) so the agent can
     # upload docs & files to the correct Feishu project folders.
@@ -158,6 +173,23 @@ def _feishu_sync_node(state: SyncCrewLocalState) -> dict[str, Any]:
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
+
+
+def _lark_proxy_reachable(timeout: float = 2.0) -> bool:
+    """探测 tools-proxy /health 是否可达（同步，2s 超时）。
+
+    v8.4-r: sync_crew 预检用 — 避免 tools-proxy 未启动时每章 3 次 LLM 重试。
+    """
+    try:
+        import httpx
+
+        from novelfactory.config.settings import settings as _st
+
+        proxy_url = _st.lark_proxy_url
+        resp = httpx.get(f"{proxy_url}/health", timeout=timeout)
+        return resp.status_code == 200
+    except Exception:
+        return False
 
 
 def _estimate_tokens(text: str) -> int:

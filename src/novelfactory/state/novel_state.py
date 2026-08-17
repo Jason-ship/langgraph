@@ -92,6 +92,9 @@ class NovelFactoryState(TypedDict):
     story_outline: NotRequired[str]
     chapter_outlines: NotRequired[str]
     setup_complete: NotRequired[Annotated[bool, _last_value]]
+    # v8.4-r: setup 中止标记 — 空 seed / 无效产出时由 setup 节点置位，
+    # supervisor 路由到 END 而非进入写作（fail-closed，防空设定污染）。
+    setup_aborted: NotRequired[Annotated[bool, _last_value]]
     volume_structure: NotRequired[Annotated[dict, _last_value]]
     auto_guidance: NotRequired[Annotated[str, _last_value]]
 

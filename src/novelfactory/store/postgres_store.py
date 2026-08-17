@@ -162,7 +162,7 @@ class PGStore:
         conn.autocommit = True
         real_cur = conn.cursor()
 
-        class _CursorWrapper:
+        class _PoolCursorWrapper:
             def __init__(
                 self, cursor_obj: Any, connection_obj: Any, pool_obj: Any
             ) -> None:
@@ -182,7 +182,7 @@ class PGStore:
             def __iter__(self) -> Any:
                 return iter(self._cursor)
 
-        return _CursorWrapper(real_cur, conn, self._pool)
+        return _PoolCursorWrapper(real_cur, conn, self._pool)
 
     def save_character_state(
         self, project: str, chapter: int, character: str, state: dict

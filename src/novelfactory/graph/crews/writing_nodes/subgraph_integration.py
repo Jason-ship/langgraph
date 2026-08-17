@@ -106,10 +106,10 @@ async def database_writer_node_fn(state: BaseCrewState) -> dict:
         "crew_result" if cr.get("quality_score") else "review_result",
     )
 
-    extracted = state.get("extracted", {})
+    extracted = state.get("extracted", {}) or {}
     # v5.12: extracted 为空时记录调试信息但不告警 — 这是 state_extractor 的行为，
     # 不影响创作流程（只是 DB 持久化降级）。
-    if not extracted or len(extracted.get("characters") or []) == 0:
+    if not extracted or len((extracted.get("characters") if isinstance(extracted, dict) else None) or []) == 0:
         logger.info(
             "[database_writer] ch%d extracted 为空，DB 角色/审计写入将跳过",
             current_ch,

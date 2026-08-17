@@ -19,12 +19,15 @@ logger = logging.getLogger(__name__)
 # ── 默认配置 ────────────────────────────────────────────────────────────────
 _DEFAULT_TTL = 3600  # 1 小时
 _CACHE_KEY_PREFIX = "llm_cache:"
-_PROMPT_HASH_LENGTH = 2000  # 取 prompt 前 2000 字符做 hash
 
 
 def _build_cache_key(model: str, temperature: float, prompt: str) -> str:
-    """构建缓存键: llm_cache:{model}:{temp}:{prompt_hash}"""
-    prompt_hash = hashlib.sha256(prompt[:_PROMPT_HASH_LENGTH].encode()).hexdigest()[:16]
+    """构建缓存键: llm_cache:{model}:{temp}:{prompt_hash}
+
+    v8.5-fix (M7): 哈希完整 prompt — 原实现仅取前 2000 字符，写作场景
+    system prompt 为静态前缀时不同内容会碰撞（缓存命中错误响应）。
+    """
+    prompt_hash = hashlib.sha256(prompt.encode()).hexdigest()[:16]
     return f"{_CACHE_KEY_PREFIX}{model}:t{temperature:.2f}:{prompt_hash}"
 
 
@@ -74,7 +77,9 @@ class LLMResponseCache:
                     health_check_interval=30,
                 )
                 self._redis_available = True
-                logger.info("[llm_cache] Redis connected: %s", redis_url[:40])
+                # v8.5-fix (M7): redis_url 含密码，日志仅输出 host 部分
+                _host = redis_url.split("@")[-1] if redis_url else ""
+                logger.info("[llm_cache] Redis connected: %s", _host)
             except Exception as e:
                 logger.warning("[llm_cache] Redis init failed (%s), cache disabled", e)
                 self._redis_available = False

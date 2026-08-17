@@ -191,22 +191,29 @@ async def verdict_engine_node(state: dict[str, Any]) -> dict[str, Any]:
         sw,
     )
     if recheck_ur is not None:
-        verdict = engine._fuse_unified(
-            recheck_ur, attempt_info, chapter_length=len(chapter_draft)
-        )
-        verdict = verdict.model_copy(
-            update={"level": VerdictLevel.PASS, "passed": True}
-        )
-        logger.info(
-            "[verdict_engine] ch%d 轻量复查通过 final=%.1f（跳过完整评审）",
-            current_ch, verdict.final_score,
-        )
-        if sw:
-            sw.write(
-                f"[verdict_engine] 第{current_ch}章轻量复查通过："
-                f"{verdict.final_score:.1f}/100 → PASS（修复完成）\n"
+        try:
+            verdict = engine._fuse_unified(
+                recheck_ur, attempt_info, chapter_length=len(chapter_draft)
             )
-    else:
+        except Exception as e:
+            logger.exception(
+                "[verdict_engine] 轻量复查融合失败，回退完整评审: %s", e
+            )
+            recheck_ur = None
+        else:
+            verdict = verdict.model_copy(
+                update={"level": VerdictLevel.PASS, "passed": True}
+            )
+            logger.info(
+                "[verdict_engine] ch%d 轻量复查通过 final=%.1f（跳过完整评审）",
+                current_ch, verdict.final_score,
+            )
+            if sw:
+                sw.write(
+                    f"[verdict_engine] 第{current_ch}章轻量复查通过："
+                    f"{verdict.final_score:.1f}/100 → PASS（修复完成）\n"
+                )
+    if recheck_ur is None:
         try:
             verdict = await engine.evaluate(
                 chapter_text=chapter_draft,
@@ -228,7 +235,7 @@ async def verdict_engine_node(state: dict[str, Any]) -> dict[str, Any]:
                 passed=True,
                 final_score=VERDICT_REFINE_THRESHOLD,
                 quality_score=VERDICT_REFINE_THRESHOLD,
-                programmatic_score=50.0,
+                programmatic_score=0.5,
                 cross_chapter_consistency=VERDICT_REFINE_THRESHOLD,
                 debate_penalty=0.0,
                 feedback=FeedbackBundle(
@@ -303,6 +310,18 @@ async def verdict_engine_node(state: dict[str, Any]) -> dict[str, Any]:
             **state_update.get("crew_result", {}),
             "_rewrite_count": loop_count + 1,
         }
+        # v8.5-fix: 保存最佳版本（原实现在 verdict_router 条件边内直接改
+        # state，LangGraph 不写回 checkpoint → 恒不生效）。此处显式写入
+        # 已声明的 WritingCrewLocalState 字段，供 _exit_for_chapter 恢复。
+        chapter_text = chapter_draft or cr.get("refined_chapter", "")
+        best_quality = float(state.get("best_version_quality", 0.0) or 0.0)
+        if verdict.quality_score > best_quality and chapter_text:
+            logger.info(
+                "[verdict_engine] ch%d REWRITE: 保存最佳版本 quality=%.1f > best=%.1f",
+                current_ch, verdict.quality_score, best_quality,
+            )
+            state_update["best_version_text"] = chapter_text
+            state_update["best_version_quality"] = verdict.quality_score
     elif verdict.level == VerdictLevel.REFINE:
         state_update["loop_count"] = loop_count
         # v8.1-fix: REFINE 计数由 coordinator 统一递增（与 REWRITE 分支对称），

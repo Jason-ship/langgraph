@@ -513,7 +513,7 @@ class ForeshadowingManager(BaseManager):
             "resolved": row[2] or 0,
             "abandoned": row[3] or 0,
             "avg_priority": round(row[4] or 0, 1),
-        }
+        } if row else {"total": 0, "active": 0, "resolved": 0, "abandoned": 0, "avg_priority": 0.0}
 
     def _row_to_fs(self, row: Any) -> Foreshadowing:
         chars = json.loads(row[7]) if isinstance(row[7], str) else (row[7] or [])

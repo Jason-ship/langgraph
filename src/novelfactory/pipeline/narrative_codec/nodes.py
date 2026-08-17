@@ -346,7 +346,7 @@ def causal_graph_builder_node(state: CodecCrewLocalState) -> dict[str, Any]:
             # 短程边数 = len(labels) - 1
             short_edge_count = max(0, len(labels) - 1)
             long_edges = edges_data[short_edge_count:]
-            for jg, (_pair, edge) in zip(judgments, long_edges):
+            for jg, edge in zip(judgments, long_edges):
                 if jg.get("answer") == "NO" and edge in edges_data:
                     edges_data.remove(edge)
         except Exception as e:

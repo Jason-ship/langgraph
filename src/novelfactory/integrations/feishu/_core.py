@@ -28,11 +28,16 @@ from novelfactory.config.constants import (  # noqa: E402
 )
 
 # v6.1: 统一从 settings 读取
+# v8.5-fix (S5): 优先级 env LARK_PROXY_URL > settings.lark_proxy_url 属性。
+# 原实现 `_st.lark_proxy_url or os.environ.get(...)` 中属性恒真导致 env 短路，
+# compose 注入的 LARK_PROXY_URL=tools_proxy:5004 从未生效（请求打到 172.28.0.1）。
 try:
     from novelfactory.config.settings import settings as _st
 
-    _LARK_PROXY_URL = _st.lark_proxy_url or os.environ.get(
-        "LARK_PROXY_URL", "http://172.28.0.1:5004"
+    _LARK_PROXY_URL = (
+        os.environ.get("LARK_PROXY_URL")
+        or _st.lark_proxy_url
+        or "http://172.28.0.1:5004"
     )
 except ImportError:
     _LARK_PROXY_URL = os.environ.get("LARK_PROXY_URL", "http://172.28.0.1:5004")

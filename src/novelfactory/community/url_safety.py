@@ -37,7 +37,7 @@ def resolve_host_addresses(hostname: str) -> list[str]:
     """解析主机名到 IP 地址列表。"""
     try:
         info = socket.getaddrinfo(hostname, None)
-        return list(set(addr[4][0] for addr in info))
+        return list({str(addr[4][0]) for addr in info})
     except socket.gaierror:
         logger.warning("[url_safety] Failed to resolve hostname: %s", hostname)
         return []

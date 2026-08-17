@@ -98,9 +98,10 @@ async def _send_feishu_reply(chat_id: str, text: str) -> None:
         logger.warning("[QualityFeedback] Channel reply failed: %s", e)
 
     try:
-        from novelfactory.integrations.feishu.feishu_api import feishu_api
+        from novelfactory.integrations.feishu.feishu_api import _get_toolkit
 
-        feishu_api.send_lark_message(chat_id=chat_id, text=text)
+        # v8.5-fix: 原引用 feishu_api.feishu_api 不存在（该模块暴露 _get_toolkit）
+        _get_toolkit().im.send_text(chat_id=chat_id, text=text)
     except Exception as e:
         logger.warning("[QualityFeedback] FeishuToolkit reply failed: %s", e)
 

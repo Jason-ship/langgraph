@@ -85,7 +85,7 @@ def wait_for_review_node(state: NovelFactoryState) -> dict:
             thread_id=thread_id,
             chapter=current_ch,
             total=target_ch,
-            chat_id=chat_id or None,
+            chat_id=str(chat_id) if chat_id else None,
         )
     except Exception as e:
         logger.warning("[wait_for_review] Feishu notification failed: %s", e)
@@ -109,7 +109,7 @@ def wait_for_review_node(state: NovelFactoryState) -> dict:
     }
 
     # ── 发送飞书交互卡片 ──────────────────────────────────────────────────────
-    _send_review_card(thread_id, interrupt_data, chat_id)
+    _send_review_card(thread_id, interrupt_data, str(chat_id) if chat_id else None)
 
     # ── Standard interrupt — suspends execution until Command(resume=...) ─────
     decision = interrupt(interrupt_data)

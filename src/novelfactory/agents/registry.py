@@ -65,6 +65,14 @@ class AgentRegistry:
             if not agent:
                 return None
             new_name = kwargs.pop("name", None)
+            # v8.5-fix (M10): 先校验重命名目标冲突，再改名 — 原实现先改对象
+            # name 后因条件不符跳过 dict key 同步，导致对象与注册表不一致。
+            if new_name and new_name != agent_name and new_name in cls._agents:
+                logger.warning(
+                    "[AgentRegistry] 重命名冲突: %s 已存在，拒绝 %s → %s",
+                    new_name, agent_name, new_name,
+                )
+                raise ValueError(f"agent name already exists: {new_name}")
             for key, value in kwargs.items():
                 if hasattr(agent, key) and value is not None:
                     setattr(agent, key, value)
@@ -72,7 +80,7 @@ class AgentRegistry:
                 setattr(agent, "name", new_name)
             agent.updated_at = datetime.now().isoformat()
             # Sync dict key if name changed
-            if new_name and new_name != agent_name and new_name not in cls._agents:
+            if new_name and new_name != agent_name:
                 del cls._agents[agent_name]
                 cls._agents[new_name] = agent
         return agent

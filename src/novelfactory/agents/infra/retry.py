@@ -141,9 +141,12 @@ def llm_call_with_retry(
                     max_retries,
                     http_status or 429,
                 )
+                # v8.5-fix (M8): 避免最后一次失败时 _record_provider_failures 双计
+                # （immediate 分支内 + 落出分支后各一次 → 熔断阈值提前触发）。
                 _record_provider_failures()
                 if attempt < max_retries:
                     continue
+                break
 
             _record_provider_failures()
 

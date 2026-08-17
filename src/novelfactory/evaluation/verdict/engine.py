@@ -135,7 +135,14 @@ class VerdictEngine:
         chapter_length: int,
     ) -> VerdictResult:
         """统一评审融合：LLM 综合分 + 迭代加分 + 路由三态（简化版 _fuse）。"""
-        final_score = ur.final_score
+        # 构造前统一钳制（第二道防线：即使 parser/仲裁漏网，也不击穿 pydantic 约束）
+        def _clamp100(v: float) -> float:
+            return max(0.0, min(100.0, float(v)))
+
+        def _clamp1(v: float) -> float:
+            return max(0.0, min(1.0, float(v)))
+
+        final_score = _clamp100(ur.final_score)
         # 迭代宽松加分（保留原机制，缓解反复修复；默认值来自 constants）
         if attempt_info.loop_count > 0 or attempt_info.refine_attempts > 0:
             bonus_rewrite = float(
@@ -151,25 +158,28 @@ class VerdictEngine:
                 attempt_info.loop_count * bonus_rewrite
                 + attempt_info.refine_attempts * bonus_refine
             )
-            final_score = min(final_score + bonus, ur.final_score + bonus_max)
+            final_score = _clamp100(min(final_score + bonus, ur.final_score + bonus_max))
 
-        quality_score = ur.four_dim.total()
+        quality_score = _clamp100(ur.four_dim.total())
+        if quality_score <= 0:
+            # 轻量复查 / LLM 未输出四维分项时兜底用综合分，避免 quality_score=0 污染章节质量数据
+            quality_score = final_score
         feedback = self._build_unified_feedback(ur)
         level = self._decide_unified_level(final_score, ur, attempt_info)
         verdict = VerdictResult(
             level=level,
             passed=level == VerdictLevel.PASS,
             final_score=round(final_score, 1),
-            quality_score=quality_score,
+            quality_score=round(quality_score, 1),
             programmatic_score=0.0,  # 程序化已移除，字段保留兼容
-            cross_chapter_consistency=ur.cross_chapter_score,
+            cross_chapter_consistency=_clamp100(ur.cross_chapter_score),
             debate_penalty=0.0,  # 辩论惩罚由统一评审自洽校验承接
-            ai_style_score=ur.human_like_score,
-            lao_shu_chong_score=ur.final_score,
+            ai_style_score=_clamp1(ur.human_like_score),
+            lao_shu_chong_score=_clamp100(ur.final_score),
             # v8.2: LLM 追踪字段透出统一评审分（下游 replay/dashboard 兼容且保留语义）
-            llm_semantic_score=ur.final_score,
-            llm_human_like_score=round(ur.human_like_score * 100.0, 1),
-            llm_attraction_score=ur.attraction_score,
+            llm_semantic_score=_clamp100(ur.final_score),
+            llm_human_like_score=round(_clamp1(ur.human_like_score) * 100.0, 1),
+            llm_attraction_score=_clamp100(ur.attraction_score),
             llm_severe_toxic_detected=ur.severe_toxic,
             llm_analysis_failed=ur.failed,
             feedback=feedback,
@@ -200,9 +210,16 @@ class VerdictEngine:
             )
             return VerdictLevel.PASS
 
-        # 统一评审失败 → 未耗尽重写时转 REWRITE（防垃圾章假通过）
-        if ur.failed and not attempt_info.rewrite_exhausted:
-            return VerdictLevel.REWRITE
+        # 统一评审失败 → 不触发重写（重写成本高且无法确认问题）；降级 PASS
+        # v8.5-fix: 原实现转 REWRITE —— 一次 API 故障触发整章重写（昂贵），
+        # 且 fallback=60 占位会反复失败消耗全部重写预算后强制通过，无质量兜底。
+        # 评审失败本身不代表章节质量差，直接降级 PASS 更符合"降级容错"原则。
+        if ur.failed:
+            logger.warning(
+                "[VerdictEngine] 统一评审失败(final=%.1f) → 降级 PASS",
+                final_score,
+            )
+            return VerdictLevel.PASS
 
         # LLM 严重毒点 → 未耗尽重写时强制 REWRITE（替代程序化 severe_toxic 触发）
         if ur.severe_toxic and not attempt_info.rewrite_exhausted:

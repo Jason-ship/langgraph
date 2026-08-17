@@ -185,6 +185,7 @@ class AuditLogger:
 
     _instance = None
     _lock = threading.Lock()
+    _initialized = False
 
     def __new__(cls) -> AuditLogger:
         if cls._instance is None:
@@ -348,6 +349,7 @@ class AlertManager:
 
     _instance = None
     _lock = threading.Lock()
+    _initialized = False
 
     def __new__(cls) -> AlertManager:
         if cls._instance is None:
@@ -513,7 +515,7 @@ def setup_monitoring(
 
     if log_level is None:
         # v6.1: 从 settings 读取日志级别
-        log_level: str = settings.LOG_LEVEL or os.environ.get("LOG_LEVEL", "INFO")
+        log_level = settings.LOG_LEVEL or os.environ.get("LOG_LEVEL", "INFO")
 
     if log_format is None:
         log_format = "json" if env == "production" else "console"

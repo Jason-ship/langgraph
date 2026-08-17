@@ -60,23 +60,23 @@ class FeishuChannel(Channel):
         super().__init__(name="feishu", bus=bus, config=config)
         self._thread: threading.Thread | None = None
         self._main_loop: asyncio.AbstractEventLoop | None = None
-        self._api_client = None
-        self._lark = None
-        self._CreateMessageReactionRequest = None
-        self._CreateMessageReactionRequestBody = None
-        self._Emoji = None
-        self._PatchMessageRequest = None
-        self._PatchMessageRequestBody = None
+        self._api_client: Any = None
+        self._lark: Any = None
+        self._CreateMessageReactionRequest: Any = None
+        self._CreateMessageReactionRequestBody: Any = None
+        self._Emoji: Any = None
+        self._PatchMessageRequest: Any = None
+        self._PatchMessageRequestBody: Any = None
         self._background_tasks: set[asyncio.Task] = set()
         self._running_card_ids: dict[str, str] = {}
         self._running_card_tasks: dict[str, asyncio.Task] = {}
         self._pending_clarifications: dict[tuple[str, str], list[dict[str, Any]]] = {}
         self._pending_inbound_batches: dict[tuple[str, str], dict[str, Any]] = {}
-        self._CreateFileRequest = None
-        self._CreateFileRequestBody = None
-        self._CreateImageRequest = None
-        self._CreateImageRequestBody = None
-        self._GetMessageResourceRequest = None
+        self._CreateFileRequest: Any = None
+        self._CreateFileRequestBody: Any = None
+        self._CreateImageRequest: Any = None
+        self._CreateImageRequestBody: Any = None
+        self._GetMessageResourceRequest: Any = None
         self._thread_lock = threading.Lock()
 
     @staticmethod
@@ -619,12 +619,12 @@ class FeishuChannel(Channel):
                 self._prepare_inbound(msg_id, inbound, source_message_ids=source_message_ids),
                 self._main_loop,
             )
-            fut.add_done_callback(lambda f, mid=msg_id: self._log_future_error(f, "prepare_inbound", mid))
+            fut.add_done_callback(lambda f: self._log_future_error(f, "prepare_inbound", msg_id))
 
     def _schedule_batch_flush(self, key: tuple[str, str], source_message_id: str) -> None:
         if self._main_loop and self._main_loop.is_running():
             fut = asyncio.run_coroutine_threadsafe(self._flush_pending_inbound_batch_after(key, source_message_id), self._main_loop)
-            fut.add_done_callback(lambda f, mid=source_message_id: self._log_future_error(f, "flush_inbound_batch", mid))
+            fut.add_done_callback(lambda f: self._log_future_error(f, "flush_inbound_batch", source_message_id))
 
     def _queue_file_inbound_batch(self, msg_id: str, inbound: InboundMessage) -> bool:
         key = self._pending_key(inbound.chat_id, inbound.user_id)
@@ -785,7 +785,7 @@ class FeishuChannel(Channel):
                         ),
                         self._main_loop,
                     )
-                    fut.add_done_callback(lambda f, mid=msg_id: self._log_future_error(f, "bind_connection", mid))
+                    fut.add_done_callback(lambda f: self._log_future_error(f, "bind_connection", msg_id))
                 return
 
             command_text = strip_leading_mentions(text)
@@ -795,6 +795,7 @@ class FeishuChannel(Channel):
             else:
                 msg_type = InboundMessageType.CHAT
 
+            topic_id: str | None
             topic_id, resolved_from_stored_mapping = self._resolve_topic_id(
                 chat_id, msg_id, root_id=root_id, parent_id=parent_id, thread_id=feishu_thread_id,
             )

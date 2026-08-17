@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import builtins
+
 from novelfactory.integrations.feishu._core import LarkResult, _LarkCLIEngine
 
 
@@ -127,7 +129,7 @@ class _AppsTools:
 
     def access_scope_set(
         self,
-        scopes: list[str],
+        scopes: builtins.list[str],
         *,
         timeout: int = 15,
     ) -> LarkResult:

@@ -18,7 +18,7 @@ TODO: The billing backend is currently unavailable — DeepSeek has no public bi
 from __future__ import annotations
 
 from pydantic import Field
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class QuotaSettings(BaseSettings):
@@ -63,12 +63,12 @@ class QuotaSettings(BaseSettings):
         description="Warn when estimated chapter cost exceeds this value (CNY).",
     )
 
-    model_config = {
-        "env_file": ".env",
-        "env_file_encoding": "utf-8",
-        "case_sensitive": True,
-        "extra": "ignore",
-    }
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=True,
+        extra="ignore",
+    )
 
 
 quota_settings = QuotaSettings()

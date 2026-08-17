@@ -17,9 +17,10 @@ class Neo4jStore:
     """Neo4j graph storage for character relationships and plot threads."""
 
     def __init__(self, config) -> None:
+        from neo4j import Driver as _Driver
         from neo4j import GraphDatabase
 
-        self._driver = None
+        self._driver: _Driver | None = None
         host = getattr(config, "NEO4J_HOST", getattr(config, "neo4j_host", "localhost"))
         port = getattr(config, "NEO4J_PORT", getattr(config, "neo4j_port", "7687"))
         user = getattr(config, "NEO4J_USER", getattr(config, "neo4j_user", "neo4j"))
@@ -38,6 +39,8 @@ class Neo4jStore:
             logger.warning("Neo4jStore init failed: %s", e)
 
     def _init_schema(self) -> None:
+        if not self._driver:
+            return
         with self._driver.session() as session:
             session.run(
                 "CREATE CONSTRAINT IF NOT EXISTS FOR (c:Character) REQUIRE c.name IS UNIQUE"
@@ -431,6 +434,8 @@ class Neo4jStore:
 
         label_map = {"character": "Character", "location": "Place", "object": "Object"}
         label = label_map.get(entity_type.lower(), "Entity")
+        if not self._driver:
+            return False
         try:
             with self._driver.session() as session:
                 session.run(
@@ -457,6 +462,8 @@ class Neo4jStore:
         sanitized = Neo4jStore._sanitize_rel_type(rel_type)
         if not sanitized:
             return False
+        if not self._driver:
+            return False
         try:
             # 自动检测两端标签
             with self._driver.session() as session:
@@ -474,6 +481,8 @@ class Neo4jStore:
 
     def set_entity_property(self, name: str, key: str, value: str) -> bool:
         """设置实体节点的属性。"""
+        if not self._driver:
+            return False
         try:
             with self._driver.session() as session:
                 query = "MATCH (e) WHERE e.name = $name SET e[$key] = $value"
@@ -498,7 +507,7 @@ class Neo4jStore:
         Returns:
             子图文本描述（供 LLM prompt 注入）
         """
-        if not keywords or not self.is_connected():
+        if not keywords or not self.is_connected() or not self._driver:
             return ""
         try:
             with self._driver.session() as session:

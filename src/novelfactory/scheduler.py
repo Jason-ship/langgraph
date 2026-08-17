@@ -129,7 +129,11 @@ class SchedulerService:
             # 启动任务
             run_task = asyncio.create_task(self._execute_task(task))
             self._running_tasks[task.task_id] = run_task
-            run_task.add_done_callback(lambda t, tid=task.task_id: self._running_tasks.pop(tid, None))
+
+            def _on_done(t: asyncio.Task, tid: str = task.task_id) -> None:
+                self._running_tasks.pop(tid, None)
+
+            run_task.add_done_callback(_on_done)
 
             if len(self._running_tasks) >= self._max_concurrent:
                 break
