@@ -1,10 +1,10 @@
 ---
 alwaysApply: true
-description: "项目核心规范，全局生效。项目架构、技术栈、目录结构、命名规范、核心文件、依赖版本。问项目干什么的、用了哪些技术、功能在哪文件、核心文件、参考源码时触发。根图/WritingCrew/QualityPanel辩论子图、P0/P1文件、技术栈（LangGraph/FastAPI/PostgreSQL/Milvus/Neo4j/Redis/MinIO）、依赖版本、命名规范、research源码。"
+description: "项目核心规范，全局生效。项目架构、技术栈、目录结构、命名规范、核心文件、依赖版本。问项目干什么的、用了哪些技术、功能在哪文件、核心文件、参考源码时触发。根图/WritingCrew/统一评审引擎、P0/P1文件、技术栈（LangGraph/FastAPI/PostgreSQL/Milvus/Neo4j/Redis/MinIO）、依赖版本、命名规范、research源码。"
 ---
 # LangGraph 小说工厂 — 项目核心规范
 
-**版本：** v4.0.0
+**版本：** v4.1.0
 **生效方式：** 始终生效
 **优先级：** ⭐⭐⭐⭐⭐
 
@@ -105,22 +105,24 @@ description: "项目核心规范，全局生效。项目架构、技术栈、目
                                                                        END
 ```
 
-### 2.3 InformedDebate 评审引擎（v7.0，替代 v5.5 QualityPanel）
+### 2.3 统一 LLM 评审引擎（v8.2，替代 v5.5 QualityPanel 与 v7.0 多源融合）
 
-评审已从 LangGraph 辩论子图重构为 `evaluation/` 模块中的结构化评分管线，核心引擎 `VerdictEngine` 融合多源评分：
+评审已从 LangGraph 辩论子图重构为 `evaluation/` 模块中的统一 LLM 评审管线，核心引擎 `VerdictEngine` 融合统一评审结果：
 
-- **四维评分**：文学性 30 + 结构 25 + 角色 20 + 节奏 15 = 90 基础分 + 10 整体
-- **程序化评分**：AI 味 8 维检测 + 老书虫爽点/毒点 + 跨章一致性传感器
-- **LLM 语义评分**：老书虫 LLM 评审 + AI 味 LLM 检测（失败降级为程序化）
-- **辩论评分**：`evaluation/debate/engine.py` — `InformedDebateEngine` 编辑↔读者多轮辩论
-- **迭代宽松加分**：根据重写/润色次数加 VerdictWeight[iteration_bonus]
-- **质量衰减**：章节 > 2 时按衰减率（`QUALITY_DECAY_RATE`）扣分
+- **统一 LLM 评审**：`evaluation/unified/` — 单次 LLM 调用完成五视角评审（老书虫/番茄编辑/读者/评论员 + 四维分项）
+- **四维评分**：剧情逻辑 30 + 文笔表达 25 + 人物一致性 25 + 世界观契合 20 = 100
+- **自洽校验**：severe 毒点 cap ≤70 / 无爽点 cap ≤65 / 四维偏差 >15 时 rebase
+- **分歧仲裁**：`evaluation/unified/arbitration.py` — 仅 severe 分歧触发 1 次轻量仲裁
+- **三级决议**：PASS ≥80 / REFINE ≥55 / REWRITE <55（评审失败降级 PASS）
+- **迭代宽松加分**：重写 +2/次、润色 +1/次，封顶 +4
+- **最佳版本保留**：REWRITE 前保存 `best_version_*`，失败时恢复（v8.5-fix M1）
 
-参考 TradingAgents Bull↔Bear 辩论模式：
-- 编辑视角：四维评分（文学性/结构/角色/节奏）
-- 读者视角：爽点/代入感/AI味/毒点
-- 评分差异 < 10 分 → 提前收敛
-- 最多 3 轮辩论
+评分职责 100% 由统一 LLM 评审承担；程序化传感器 / 5 LLM 维度并行 / 多轮辩论 / 加权融合 / 校准均已移除（v8.2）。
+
+参考 TradingAgents Bull↔Bear 辩论模式（思想借鉴，实现已重构）：
+- 五视角评审替代多轮辩论（一次调用输出多角色立场）
+- 严重分歧才触发仲裁（替代固定 3 轮辩论循环）
+- 详见 [04-quality-scoring.md](file:///Users/jason/Downloads/langgraph/.trae/rules/04-quality-scoring.md)
 
 ---
 
@@ -168,21 +170,23 @@ langgraph/
 | 优先级 | 文件 | 作用 | 修改频率 |
 |--------|------|------|----------|
 | P0 | `graph/new_builder.py` | 根图构建（18 节点+Send） | 高 |
-| P0 | `graph/routing.py` | 路由函数（含 phase check chain） | 高 |
+| P0 | `graph/routing.py` | 路由函数（含 setup_aborted 拦截 + 幂等检查链） | 高 |
 | P0 | `graph/node_specs.py` | NodeSpec 动态注册表 | 中 |
-| P0 | `graph/crews/writing_crew.py` | 写作子图（含 quality_panel） | 高 |
-| P0 | `evaluation/verdict/engine.py` | VerdictEngine 融合评审 | 高 |
-| P0 | `evaluation/coordinator.py` | 评审协调器（verdict_engine_node） | 高 |
-| P0 | `state/novel_state.py` | 全局状态定义 | 中 |
+| P0 | `graph/crews/writing_crew.py` | 写作子图（WritingCrewLocalState schema） | 高 |
+| P0 | `evaluation/unified/` | 统一 LLM 评审（engine/parser/prompts/arbitration） | 高 |
+| P0 | `evaluation/verdict/engine.py` | VerdictEngine 融合评审（三级决议） | 高 |
+| P0 | `evaluation/coordinator.py` | 评审协调器（verdict_engine_node + best_version） | 高 |
+| P0 | `state/novel_state.py` | 全局状态定义（含 setup_aborted） | 中 |
 | P0 | `graph/checkpointer.py` | 持久化层 + 检查点清理 | 低 |
 | P1 | `schemas/review_schemas.py` | 结构化评审 Schema | 低 |
 | P1 | `graph/parallel/volume_dispatch.py` | Send 并行分发 | 中 |
 | P1 | `server/app.py` | API 服务 | 低 |
 | P1 | `server/streaming.py` | SSE 流式 + Agent 状态追踪 | 中 |
-| P1 | `evaluation/debate/engine.py` | InformedDebate 辩论引擎 | 中 |
+| P1 | `evaluation/schemas.py` | VerdictResult / FeedbackBundle / AttemptInfo | 低 |
 | P1 | `config/constants.py` | 全局常量中心化 | 中 |
-| P1 | `config/settings.py` | 配置层（含 env 覆盖） | 中 |
+| P1 | `config/settings.py` | 配置层（含 env 覆盖 + LARK_PROXY_URL） | 中 |
 | P1 | `config/llm.py` | LLM 配置 | 中 |
+| P1 | `config/quality_params.py` | 动态调参中心 | 中 |
 | P1 | `utils/wall_time_tracker.py` | 全链路耗时/Token/LLM 统计 | 低 |
 | P1 | `agents/infra/` | 基础设施模块组 | 中 |
 | P1 | `integrations/feishu/feishu_toolkit.py` | 飞书工具箱 | 低 |
@@ -227,9 +231,8 @@ lark-cli >=1.0.57
 | **编排型并行** | Main Supervisor 条件路由 | 串行调度 | 阶段切换（setup→writing→media→sync） | `graph/routing.py` |
 | **子图独立Agent** | `add_node(compiled_subgraph)` | 独立运行 | writing/media/sync/setup 子图 | `graph/new_builder.py` |
 | **ThreadPoolExecutor 真并行** | `ThreadPoolExecutor(max_workers=2)` | 2 | media_crew 插图+配音同时生成 | `graph/crews/media_crew.py` |
-| **评审子Agent并行** | VerdictEngine 统一编排 + try/except 降级 | 4（逻辑并行） | 程序化/LLM老书虫/LLM AI味/辩论 | `evaluation/verdict/engine.py` + `evaluation/coordinator.py` |
-| **辩论式并行** | 编辑↔读者多轮辩论 | 2 views × 3 rounds | 章节质量定性评审 | `evaluation/debate/engine.py` |
-| **检查链** | NodeSpec 动态注册 + 条件路由 | 按题材过滤 | volume_check/quality_check/foreshadowing | `graph/node_specs.py` |
+| **统一评审子Agent** | UnifiedReviewEngine 单次五视角调用 + 分歧仲裁 | 1 次调用 | 章节质量评审（v8.2+） | `evaluation/unified/` + `evaluation/verdict/engine.py` |
+| **检查链** | NodeSpec 动态注册 + 幂等条件路由 | 按题材过滤 | volume_check/quality_check/foreshadowing | `graph/node_specs.py` + `graph/routing.py` |
 | **扇出边** | `add_edge([A,B], C)` | 静态扇出 | 多节点汇聚 | `graph/new_builder.py` |
 | ~~Send Map-Reduce~~ | ~~LangGraph Send API~~ | ~~动态分发~~ | ~~卷级并行写作（v6.3 已移除）~~ | ~~`graph/parallel/volume_dispatch.py`~~ |
 
@@ -264,42 +267,41 @@ with ThreadPoolExecutor(max_workers=2, thread_name_prefix="media_crew") as pool:
 - 失败时自动重试（最多 3 次）
 - 单 Agent 失败不影响另一个
 
-#### 7.2.3 评审子Agent并行（逻辑并行）
+#### 7.2.3 统一评审子Agent（v8.2，替代 7.0 四维并行评审）
 
-`VerdictEngine.evaluate()` 统一编排 4 个评审维度（v7.0 重构，替代旧 `run_parallel_review`）：
-
-```
-run_programmatic_analysis ──-> 程序化分析（AI味8维 + 老书虫爽点/毒点 + 跨章一致性）
-llm_old_reader_analysis   ──-> LLM 老书虫语义评分
-llm_ai_style_analysis     ──-> LLM AI味人类相似度
-InformedDebateEngine.run  ──-> 编辑↔读者多轮辩论
-```
-
-每个维度有独立的 try/except 保护：
-- 单维度失败 -> 降级为程序化评分或默认值，不阻塞整体
-- 4 个维度地位平等，互不依赖
-- 辩论结果作为定性分析，产出问题清单 + 严重度权重
-
-#### 7.2.4 辩论式并行
-
-Editor Reader 多轮辩论（最多 3 轮）：
+`UnifiedReviewEngine.evaluate()` 单次 LLM 调用完成五视角评审（v8.2 重构，替代旧 `run_parallel_review` 的 4 路并行）：
 
 ```
-editor_review ──→ reader_review ──→ debate_router
-                                        │
-                ┌───────────────────────┼──────────────────────┐
-                ▼                       ▼                      ▼
-          editor_rebuttal        reader_rebuttal         quality_gate
-                │                       │                      │
-                └───────────────────────┘                      │
-                          │                             debate_converge
-                          ▼                                     │
-                    debate_router                               END
-                  (max 3 rounds)
+五视角评审（一次调用）
+  老书虫（毒点/爽点/节奏） + 番茄编辑（钩子/吸引力）
+  读者（沉浸感） + 评论员（逻辑） + 四维分项（逻辑/文笔/人物/世界观）
+        ↓ 标签化解析 + 自洽校验
+  severe 分歧 → 分歧仲裁（1 次轻量调用）
+        ↓
+  VerdictEngine._fuse_unified → 三级决议（PASS/REFINE/REWRITE）
 ```
 
-- 评分差异 < 10 分 → 提前收敛
-- 3 轮后未收敛 → 自动取平均分
+容错保护：
+- 评审调用走 `async_llm_call_with_retry`（超时/重试/熔断/配额）
+- 评审失败 `ur.failed` → 降级 PASS（v8.5-fix M3，防故障触发整章重写）
+- 分数越界 → parser/仲裁/engine 三层钳制（v8.5-fix S2）
+
+#### 7.2.4 分歧仲裁（替代 v7.0 多轮辩论）
+
+```
+editor_review → reader_review → critic_review（五视角一次输出）
+                        ↓
+              severe 分歧？
+                  ↓是               ↓否
+          arbitrate（1 次仲裁）   直接融合
+          [分数修正] final: x->y
+                        ↓
+          apply_consistency_check（复核硬约束，v8.5-fix M2）
+```
+
+- 仅 severe 分歧触发仲裁（替代固定 3 轮辩论）
+- 仲裁后重新执行一致性检查，防高分仲裁放行毒点章节
+- 仲裁 LLM 失败 → 返回原分
 
 ### 7.3 并行设计原则
 
@@ -350,7 +352,7 @@ editor_review ──→ reader_review ──→ debate_router
 
 | 模式 | NovelFactory 对应模块 | 来源文件 |
 |------|---------------------|---------|
-| Bull↔Bear 辩论 | evaluation/debate/engine.py（编辑↔读者辩论） | `agents/risk_mgmt/` |
+| Bull↔Bear 辩论（思想） | evaluation/unified/（五视角评审 + 分歧仲裁，v8.2 重构） | `agents/risk_mgmt/` |
 | NodeSpec 动态注册 | node_specs.py + new_builder.py | `graph/analyst_execution.py` |
 | Send Map-Reduce | parallel/volume_dispatch.py | `graph/signal_processing.py` |
 | 结构化 Schema | schemas/review_schemas.py | `agents/schemas.py` |
@@ -378,6 +380,6 @@ editor_review ──→ reader_review ──→ debate_router
 
 ---
 
-**规则版本：** v4.0.0
+**规则版本：** v4.1.0
 **生效方式：** 始终生效
-**最后更新：** 2026-08-11
+**最后更新：** 2026-08-17

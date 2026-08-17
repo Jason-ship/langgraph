@@ -69,7 +69,10 @@ GraphDatabase.driver("bolt://neo4j:7687", auth=("neo4j", "pass"))
 
 ```python
 # 容器内 → 宿主机（仅限 Minimax 等外部 API）
-TOOLS_PROXY = "http://172.28.0.1:5004"  # Docker 默认网关
+TOOLS_PROXY = "http://172.28.0.1:5004"  # Docker 默认网关（v8.5 前错误值）
+
+# 容器内 → tools_proxy（v8.5-fix S5：settings.LARK_PROXY_URL 默认走服务名）
+LARK_PROXY_URL = "http://tools_proxy:5004"  # 容器内默认，env 可覆盖
 ```
 
 ### 1.4 服务端口映射
@@ -94,6 +97,7 @@ TOOLS_PROXY = "http://172.28.0.1:5004"  # Docker 默认网关
 | 容器名 | 镜像 | 端口映射 | 说明 |
 |--------|------|----------|------|
 | langgraph_api | 自建 Dockerfile | 8123:8000 | FastAPI + LangGraph + PM2 |
+| langgraph_tools_proxy | 自建 | 5004:5004 | tools-proxy（飞书通知链路，v8.4 新增） |
 | langgraph_nginx | nginx:latest | 8081:80, 8443:443 | 反向代理 |
 | langgraph_postgres | pgvector/pgvector:pg16 | 5434:5432 | 检查点/Store（含 pgvector 插件） |
 | langgraph_redis | redis:6-alpine | 6380:6379 | 缓存/队列 |
@@ -328,8 +332,9 @@ docker tag docker.m.daocloud.io/library/neo4j:5 neo4j:5
 |------|------|------|
 | **Docker build 失败: COPY file not found** | 文件缺失 | 确认所有构建文件存在（见第六节） |
 | **Docker Hub 连接超时** | 网络无法直连 registry-1.docker.io | 使用 DaoCloud 镜像源（见第七节） |
-| **容器启动后健康检查失败** | 依赖服务未就绪或配置错误 | 检查 postgres/redis 先于 API 启动；确认 `.env` 文件存在 |
+| **容器启动后健康检查失败** | 依赖服务未就绪或配置错误 | 检查 postgres/redis 先于 API 启动；确认 `.env` 文件存在；tools_proxy 未启动时 sync_crew 预检跳过同步（v8.4-r） |
 | **容器启动后立即退出** | 启动脚本错误或依赖缺失 | `docker compose -p langgraph logs api` 查看日志 |
+| **SSH 会话 docker 凭据错误** | `credsStore: desktop` 无法访问 Windows 凭据 | `set DOCKER_CONFIG=C:\dockernocreds`（无凭据配置）后执行 compose |
 | **端口冲突** | 宿主机端口已被占用 | `netstat -ano | findstr :8123` 检查占用 |
 | **磁盘空间不足** | 容器日志或镜像堆积 | `docker system prune -af` 清理 |
 
@@ -350,6 +355,6 @@ echo "=== Docker PS ===" && docker compose -p langgraph ps && echo "=== Health =
 
 ---
 
-**规则版本：** v3.2.0
+**规则版本：** v3.3.0
 **生效方式：** 智能生效
-**最后更新：** 2026-07-04
+**最后更新：** 2026-08-17

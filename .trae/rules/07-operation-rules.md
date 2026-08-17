@@ -4,7 +4,7 @@ description: "操作纪律与规范，全局生效。触发：改代码、找文
 ---
 # 操作纪律与规范
 
-**版本：** v2.3.0
+**版本：** v2.4.0
 **生效方式：** 始终生效
 **优先级：** ⭐⭐⭐⭐⭐
 
@@ -58,13 +58,14 @@ description: "操作纪律与规范，全局生效。触发：改代码、找文
 
 | 注意点 | 说明 | 示例 |
 |--------|------|------|
-| **容错保护** | 每个并行 Agent 必须有独立 try/except | `run_parallel_review` 中 4 个子评审各自独立保护 |
+| **容错保护** | 每个并行 Agent 必须有独立 try/except | 统一评审走 `async_llm_call_with_retry`，失败降级 PASS |
 | **Reducer 声明** | 多节点写入同一字段必须使用 Annotated Reducer | `_last_value`, `add_messages`, `operator.add` |
 | **递归上限** | 子图必须设置 `recursion_limit` | 根图 5000 / 子图 200 |
 | **无 Checkpointer** | 子图编译不传 checkpointer | `build_writing_crew()` 编译时不传 |
 | **同步 Agent** | ThreadPoolExecutor 只支持同步 Runnable | media_crew 中 illustrator/tts 为同步 |
 | **线程安全** | 并行 Agent 间通过 state 通信，无共享内存 | 使用 `crew_result` 透传数据 |
 | **有限重试** | 并行 Agent 重试不超过 3 次 | `_media_tool_router` 最多 3 次重试 |
+| **字段声明** | 子图/根图状态字段必须先声明再写入 | v8.5-fix S6/S7：critic/guidance/best_version 声明后 HITL 才生效 |
 
 ### 新增并行模式检查清单
 

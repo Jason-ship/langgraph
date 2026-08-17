@@ -1,10 +1,10 @@
 ---
 alwaysApply: false
-description: "API/存储/集成规范，匹配server/**、middleware/**、store/**、integrations/**、tools/**、pipeline/**、config/**。飞书文档/文件夹/lark-cli参数、API端点、SSE流式、中间件、存储层、飞书回调时触发。FastAPI（7路由）、SSE（8事件）、中间件（5个）、存储（4种）、飞书四层架构（lark-cli/FeishuToolkit/FeishuAPI/@tool）、Pipeline/Config、飞书回调。"
+description: "API/存储/集成规范，匹配server/**、middleware/**、store/**、integrations/**、tools/**、pipeline/**、config/**。飞书文档/文件夹/lark-cli参数、API端点、SSE流式、中间件、存储层、飞书回调时触发。FastAPI（20+路由）、SSE（8事件）、中间件（5个）、存储（4种）、飞书四层架构（lark-cli/FeishuToolkit/FeishuAPI/@tool）、Pipeline/Config、飞书回调。"
 ---
 # API/存储/集成规范
 
-**版本：** v1.2.0
+**版本：** v1.3.0
 **生效方式：** 智能生效
 **优先级：** ⭐⭐⭐⭐
 **匹配模式：** `server/**`, `middleware/**`, `store/**`, `integrations/**`, `tools/**`, `pipeline/**`, `config/**`, `crews/**`, `analysis/**`
@@ -22,17 +22,32 @@ class CustomJSONResponse(JSONResponse):
     """JSONResponse that uses _MessageJSONEncoder for AIMessage serialization."""
 ```
 
-### 1.2 路由文件（7 个）
+### 1.2 路由文件（server/routes/ 21 个）
 
 | 文件 | 路由前缀 | 职责 |
 |------|---------|------|
-| `routes/health.py` | `/health`, `/ready`, `/info`, `/metrics` | 健康检查、就绪探针、版本信息、Prometheus 指标 |
+| `routes/health.py` | `/health`, `/ready`, `/info`, `/metrics`, `/params` | 健康检查、就绪探针、版本信息、指标、动态参数 |
 | `routes/threads.py` | `/threads` | 线程 CRUD（创建/查询/更新/删除/复制/历史/状态） |
 | `routes/runs.py` | `/threads/{id}/runs` | 写作运行管理（启动/恢复/取消/流式回放） |
 | `routes/assistants.py` | `/assistants` | Assistant 管理、图结构/Schema/子图查询 |
 | `routes/store.py` | `/store` | 持久化存储 CRUD + 搜索（Item/Namespace） |
 | `routes/crons.py` | `/runs/crons` | 定时任务管理（创建/搜索/删除） |
 | `routes/feishu_callback.py` | `/feishu` | 飞书交互卡片回调 + 手动线程恢复 |
+| `routes/agents.py` | `/agents` | Agent 管理（注册/重命名/删除，v8.5 重命名冲突 → HTTP 409） |
+| `routes/skills.py` | `/skills` | Skill 管理 |
+| `routes/memory.py` | `/memory` | 长期记忆查询 |
+| `routes/branches.py` | `/threads/{id}/branches` | 时间旅行分支管理 |
+| `routes/regenerate.py` | `/threads/{id}/regenerate` | 章节重新生成 |
+| `routes/compact.py` | `/threads/{id}/compact` | 上下文压缩 |
+| `routes/time_travel.py` | `/threads/{id}/time-travel` | 时间旅行 API |
+| `routes/token_usage.py` | `/token-usage` | Token 用量查询 |
+| `routes/quality_feedback.py` | `/quality-feedback` | 评分反馈（反馈按钮 → 参数调优） |
+| `routes/channel_connections.py` | `/channels` | 通道连接管理 |
+| `routes/console.py` | `/console` | 控制台 |
+| `routes/features.py` | `/features` | 特性开关 |
+| `routes/feedback.py` | `/feedback` | 用户反馈 |
+| `routes/input_polish.py` | `/input/polish` | 输入润色 |
+| `routes/suggestions.py` | `/suggestions` | 写作建议 |
 
 ### 1.3 API 基础 URL
 
@@ -433,11 +448,13 @@ from novelfactory.pipeline.scale_manager import ScaleManager
 
 | 文件 | 职责 |
 |------|------|
-| `config/llm.py` | LLM 工厂 — ChatOpenAI 实例化（supervisor/worker/reviewer 不同 temperature） |
-| `config/settings.py` | pydantic-settings 配置中心 + `_ENV_OVERRIDES`（9 个环境变量类型安全覆盖） |
+| `config/llm.py` | LLM 工厂 — ChatOpenAI 实例化（supervisor/worker/reviewer 不同 temperature；v8.5 DeepSeek key 兜底不再串用 ARK/OPENAI） |
+| `config/settings.py` | pydantic-settings 配置中心 + `_ENV_OVERRIDES`（8 个环境变量类型安全覆盖）+ `LARK_PROXY_URL` 字段（v8.5-fix S5）+ URL 密码日志掩码（v8.5-fix S9） |
 | `config/database.py` | 数据库连接池 — PostgreSQL/Milvus/Neo4j/Redis 统一配置 |
-| `config/constants.py` | 全局常量中心化 — 评分阈值、题材阈值（GENRE_THRESHOLDS）、VERDICT_WEIGHTS、重试/超时/并行参数 |
-| `config/llm_params.py` | LLM 参数中心 — 5 个 Tier + 8 个 Agent 级覆盖（Temperature/Timetout） |
+| `config/constants.py` | 全局常量中心化 — 阈值（VERDICT_PASS/REFINE_THRESHOLD）、题材阈值（GENRE_THRESHOLDS）、重试/超时/并行参数 |
+| `config/llm_params.py` | LLM 参数中心 — 5 个 Tier + Agent 级覆盖（Temperature/Timeout） |
+| `config/quality_params.py` | 动态调参中心 — verdict.* / unified.* 运行时覆盖 |
+| `config/quota.py` | QuotaSettings — 配额单一来源（v8.5-fix M5 消除双源） |
 | `config/pricing.py` | 定价 — Token 计费标准 |
 
 ### 8.2 环境变量覆盖
@@ -447,12 +464,14 @@ from novelfactory.pipeline.scale_manager import ScaleManager
 _ENV_OVERRIDES = {
     "NOVELFACTORY_CHECKPOINT_TYPE":  "CHECKPOINT_TYPE",  # postgres | memory
     "NOVELFACTORY_MAX_RETRIES":      "MAX_RETRIES",
-    # ... 共 9 个键，自动类型安全转换
+    # ... 共 8 个键，自动类型安全转换（v8.5 移除 QUOTA_THRESHOLD 死映射）
 }
 
 def _coerce_env(value: str, reference: object) -> object:
     """类型安全转换: "true" → True, "5" → 5, "3.14" → 3.14"""
 ```
+
+**LARK_PROXY_URL（v8.5-fix S5）**：`settings.LARK_PROXY_URL` 字段已声明，`lark_proxy_url` 属性 = `LARK_PROXY_URL or f"http://tools_proxy:5004"`（env 优先，容器内默认可达）。启动日志 `_log_effective_config` 对 `DATABASE_URL`/`REDIS_URL` 等 URL 字段掩码 userinfo 密码。
 
 ---
 

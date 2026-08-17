@@ -1,10 +1,10 @@
 ---
 alwaysApply: false
-description: "LangGraph规范，匹配graph/**、state/**、langgraph.json。调图流程、改路由、加node、状态字段、并行分发、检查点恢复、子图编译、recursion_limit、Send分发、Command/interrupt/NodeSpec时触发。节点签名、TypedDict+AnnotatedReducer、Checkpointer、NodeSpec注册、Send Map-Reduce、路由、子图编译、QualityPanel。"
+description: "LangGraph规范，匹配graph/**、state/**、langgraph.json。调图流程、改路由、加node、状态字段、并行分发、检查点恢复、子图编译、recursion_limit、Send分发、Command/interrupt/NodeSpec时触发。节点签名、TypedDict+AnnotatedReducer、Checkpointer、NodeSpec注册、幂等检查链路由、路由、子图编译、统一评审。"
 ---
 # LangGraph 图开发规范
 
-**版本：** v3.2.0
+**版本：** v3.3.0
 **生效方式：** 智能生效
 **优先级：** ⭐⭐⭐⭐⭐
 **匹配模式：** `graph/**`, `state/**`, `langgraph.json`
@@ -234,7 +234,28 @@ NodeSpec 中 `only_for_genres` 和 `skip_genres` 必须使用解析后的标准�
 
 ### 5.4 路由集成
 
-`route_from_supervisor` 从 `PHASE_CHECK_SPECS` 调用 `build_check_chain(genre)` 生成按题材过滤的检查链，各节点通过 `route_phase_check_chain` 条件路由串联。
+`route_from_supervisor` 从 `PHASE_CHECK_SPECS` 调用 `build_check_chain(genre)` 生成按题材过滤的检查链。
+
+**v8.5-fix（S8）**：检查链节点绑定 `make_check_chain_router(node_key)` 幂等路由闭包，按"当前完成节点在链中的位置"精确路由到下一节点：
+
+```python
+# graph/routing.py — v8.5-fix：替代基于跨章残留状态字段的 route_phase_check_chain
+def make_check_chain_router(node_key: str):
+    def _route(state: NovelFactoryState) -> str:
+        check_chain = build_check_chain(PHASE_CHECK_SPECS, _resolve_genre(state))
+        if not check_chain:
+            return "refresh_quota"
+        pos = _find_in_chain(check_chain, node_key)
+        if pos >= 0 and pos + 1 < len(check_chain):
+            return check_chain[pos + 1]
+        return "refresh_quota"
+    return _route
+
+# new_builder.py 中为每个检查节点绑定独立路由
+builder.add_conditional_edges("volume_check", make_check_chain_router("volume_check"), CHECK_CHAIN_MAP)
+```
+
+> ⚠️ 旧 `route_phase_check_chain` 基于 `volume_status/quality_trend/foreshadowing_status` 等**跨章持久化字段**推断进度，第 2 章起残留状态导致后续检查被跳过（已修复）。新图统一使用 `make_check_chain_router`，旧函数仅保留兼容。
 
 ---
 
@@ -248,9 +269,8 @@ NovelFactory 支持 6 种多智能体并行模式（~~划掉的是 v6.3 已移�
 |------|---------|---------|---------|
 | **子图独立Agent** | `add_node(compiled_subgraph)` | 时序协作 | `graph/new_builder.py` |
 | **ThreadPoolExecutor 真并行** | `ThreadPoolExecutor(max_workers=N)` | 线程级并行 | `graph/crews/media_crew.py` |
-| **评审子Agent并行** | VerdictEngine.evaluate() 统一编排 + try/except 降级 | 逻辑并行 | `evaluation/verdict/engine.py` + `evaluation/coordinator.py` |
-| **辩论式并行** | 编辑↔读者多轮辩论 | 视角并行 | `agents/quality_panel_agents.py` |
-| **检查链** | NodeSpec 动态注册 + 条件路由 | 链式并行 | `graph/node_specs.py` |
+| **统一评审子Agent** | UnifiedReviewEngine 单次五视角调用 + 分歧仲裁 | 单次调用 | `evaluation/unified/` + `evaluation/verdict/engine.py` |
+| **检查链** | NodeSpec 动态注册 + 幂等闭包路由 | 链式并行 | `graph/node_specs.py` + `graph/routing.py` |
 | **扇出边** | `add_edge([A,B], C)` | 静态扇出 | `graph/new_builder.py` |
 | ~~Send Map-Reduce~~ | ~~LangGraph Send API~~ | ~~动态并行~~ | ~~`graph/parallel/volume_dispatch.py`~~ |
 
@@ -291,59 +311,55 @@ def _parallel_media_node(state: MediaCrewLocalState) -> dict[str, Any]:
 - 单 Agent 失败不影响另一个，各自 try/except 保护
 - 结果通过 `crew_result` 合并返回
 
-#### 6.2.3 评审子Agent并行
+#### 6.2.3 统一评审子Agent（v8.2）
 
-`VerdictEngine.evaluate()` 统一编排 4 个评审维度，每个维度有独立 try/except 保护：
+`UnifiedReviewEngine.evaluate()` 单次 LLM 调用完成五视角评审（替代旧 4 路并行评审）：
 
 ```python
-# evaluation/verdict/engine.py - VerdictEngine.evaluate()
-# 4 个评审维度逻辑并行，各自独立容错
-programmatic = _safe_call(run_programmatic_analysis, ...)    # 程序化评分
-llm_old_reader = _safe_call(llm_old_reader_analysis, ...)    # LLM 老书虫语义评分
-llm_ai_style = _safe_call(llm_ai_style_analysis, ...)        # LLM AI味语义评分
-debate = _safe_call(InformedDebateEngine.run, ...)           # 编辑↔读者多轮辩论
-return fused_verdict
+# evaluation/unified/engine.py - UnifiedReviewEngine.evaluate()
+# 一次调用：五视角（老书虫/番茄编辑/读者/评论员）+ 四维分项
+ur = await unified_engine.evaluate(chapter_text=..., genre=..., ...)
+# → parse_review_output（标签化解析 + _clamp 钳制）
+# → apply_consistency_check（自洽校验硬约束）
+# → arbitrate（仅 severe 分歧触发 1 次仲裁）
 ```
 
 **容错设计**：
-- 单维度失败 -> 降级为程序化评分或默认值，不影响其他维度
-- 4 个维度地位平等，互不依赖
-- 辩论结果作为定性分析，独立于定量评分
+- 调用走 `async_llm_call_with_retry`（超时/重试/熔断/配额/缓存）
+- 评审失败 `ur.failed` → 降级 PASS（v8.5-fix M3）
+- 分数越界 → parser/仲裁/engine 三层钳制（v8.5-fix S2）
 
-#### 6.2.4 VerdictEngine 融合评审（替代 v5.5 QualityPanel 辩论子图）
+#### 6.2.4 VerdictEngine 统一评审融合（替代 v5.5 QualityPanel 与 v7.0 多源融合）
 
-评审已从 LangGraph 辩论子图重构为 `evaluation/` 模块中的结构化评分管线。核心引擎 `VerdictEngine` 在 `evaluation/verdict/engine.py`，由 `evaluation/coordinator.py` 的 `verdict_engine_node` 封装为图节点：
+评审已从 LangGraph 辩论子图重构为 `evaluation/` 模块中的统一 LLM 评审管线。核心引擎 `VerdictEngine` 在 `evaluation/verdict/engine.py`，由 `evaluation/coordinator.py` 的 `verdict_engine_node` 封装为图节点：
 
-VerdictEngine 融合评分源：
-| 评分源 | 来源模块 | 权重 |
-|--------|---------|:----:|
-| 四维 LLM 评分 | `evaluation/llm/_shared.py` | quality_weight |
-| 程序化评分 | `evaluation/programmatic/runner.py` | programmatic_weight |
-| LLM 老书虫语义分 | `evaluation/llm/old_reader_llm.py` | llm_old_reader_weight |
-| LLM AI味语义分 | `evaluation/llm/ai_style_llm.py` | llm_human_like_weight |
-| 辩论评分 | `evaluation/debate/engine.py` | debate_penalty_weight |
-| 跨章一致性 | `evaluation/programmatic/cross_chapter_sensor.py` | cross_chapter_weight |
-| 迭代宽松加分 | verdict/engine.py 内置 | iteration_bonus |
-| 质量衰减扣分 | verdict/engine.py 内置 | decay_penalty |
+统一评审管线：
+| 阶段 | 模块 |
+|------|------|
+| 五视角评审（单次调用） | `evaluation/unified/engine.py` |
+| 标签化解析 + 分数钳制 | `evaluation/unified/parser.py` |
+| 自洽校验硬约束 | `evaluation/unified/parser.py`（apply_consistency_check） |
+| 分歧仲裁 | `evaluation/unified/arbitration.py` |
+| 融合 + 迭代加分 + 三级决议 | `evaluation/verdict/engine.py` |
+| 三分支路由 | `evaluation/verdict/router.py` |
 
 评分流水线：
 ```
 verdict_engine (VerdictEngine.evaluate)
     ↓
-  _decide_level (三级决议: PASS/REFINE/REWRITE)
+  _decide_unified_level (三级决议: PASS/REFINE/REWRITE)
     ↓
-  verdict_router → chapter_planner / chapter_refiner / state_extractor
+  verdict_router → chapter_planner / chapter_refiner / __exit_for_chapter__
 ```
 
 相关代码路径：
+- `evaluation/unified/` — 统一 LLM 评审（engine/parser/prompts/arbitration/schemas）
 - `evaluation/verdict/engine.py` — VerdictEngine 融合引擎
-- `evaluation/verdict/calibration.py` — 评分校准/漂移检测
-- `evaluation/verdict/feedback.py` — FeedbackBuilder 统一反馈包
 - `evaluation/verdict/router.py` — verdict_router 三分支路由
-- `evaluation/coordinator.py` — verdict_engine_node 图节点封装
-- `evaluation/debate/engine.py` — InformedDebateEngine 辩论
-- `evaluation/llm/` — LLM 语义评分
-- `evaluation/programmatic/` — 程序化评分传感器
+- `evaluation/coordinator.py` — verdict_engine_node 图节点封装 + best_version 保存
+- `evaluation/schemas.py` — VerdictResult / FeedbackBundle / AttemptInfo
+
+> 评分细节与阈值详见 [04-quality-scoring.md](file:///Users/jason/Downloads/langgraph/.trae/rules/04-quality-scoring.md)
 
 #### 6.2.5 检查链（NodeSpec 动态注册）
 
@@ -393,10 +409,10 @@ Send("writing_crew", {
 | 场景 | 推荐模式 | 不推荐 |
 |------|---------|-------|
 | 独立任务并发（插图+配音） | ThreadPoolExecutor | Send |
-| 多视角评审 | 辩论式并行 | 单 Agent |
+| 章节质量评审 | 统一 LLM 评审（五视角一次调用） | 多轮辩论 |
 | 阶段切换 | Main Supervisor 编排 | 手动 Command |
 | 大量独立子任务 | 线性逐一（v6.3+） | Send Map-Reduce |
-| 按题材过滤的检查 | NodeSpec 动态链 | if/else 硬编码 |
+| 按题材过滤的检查 | NodeSpec 动态链 + 幂等闭包路由 | if/else 硬编码 |
 
 ---
 
@@ -406,9 +422,10 @@ Send("writing_crew", {
 
 | 条件 | 目标 | 说明 |
 |------|------|------|
+| `setup_aborted=True`（任意 phase） | `END` | v8.5-fix S4：全局拦截，防空设定污染 |
 | phase=setup, 未完成 | `setup_crew` | |
 | phase=setup, 完成 | `load_memory` | |
-| phase=writing, ch>1 | `volume_check` → `quality_check` → `foreshadowing_check` | NodeSpec 动态链 |
+| phase=writing, ch>1 | `volume_check` → `quality_check` → `foreshadowing_check` | NodeSpec 动态链 + 幂等闭包路由 |
 | phase=writing, ch=1 | `refresh_quota` | |
 | phase=writing, 审核待定 | `wait_for_review` | interrupt |
 | phase=volume_parallel (v6.3移除) | `volume_dispatch` | Send 并行分发 |
@@ -438,13 +455,15 @@ Send("writing_crew", {
 
 ## 九、VerdictEngine 评分路由（替代 v5.5 QualityPanel 辩论子图）
 
-QualityPanel 辩论子图已废弃，评分路由由 `evaluation/verdict/router.py` 的 `verdict_router` 函数处理：
+QualityPanel 辩论子图已废弃，评分路由由 `evaluation/verdict/router.py` 的 `verdict_router` 函数处理（纯路由，v8.5 已移除 state 修改逻辑）：
 
 ```python
 # evaluation/verdict/router.py
-def verdict_router(state) -> Literal["chapter_planner", "chapter_refiner", "state_extractor"]:
-    """三分支路由: REWRITE→chapter_planner, REFINE→chapter_refiner, PASS→state_extractor"""
+def verdict_router(state) -> Literal["chapter_planner", "chapter_refiner", "__exit_for_chapter__"]:
+    """三分支路由: REWRITE→chapter_planner, REFINE→chapter_refiner, PASS→__exit_for_chapter__"""
 ```
+
+> v8.5-fix（M1）：`best_version_*` 保存逻辑已从条件边迁移到 `verdict_engine_node` 节点返回值（条件边内改 state 不写回 checkpoint，原恢复逻辑恒不触发）。
 
 评分决策流程详见 [04-quality-scoring.md](file:///Users/jason/Downloads/langgraph/.trae/rules/04-quality-scoring.md)
 
@@ -479,12 +498,14 @@ def verdict_router(state) -> Literal["chapter_planner", "chapter_refiner", "stat
 | recursion_limit 超限 | 递归上限太低 | 根图 5000 / 子图 200 |
 | 子图不持久化 | 子图带了 checkpointer | 子图编译不传 checkpointer |
 | 检查点恢复后状态丢失 | thread_id 不匹配 | 始终传正确的 `configurable.thread_id` |
-| VerdictEngine 评分异常 | LLM 语义分全部降级 | 检查熔断器状态和配额余量 |
+| 检查链第 2 章起被跳过 | 跨章残留状态字段误判进度 | 用 `make_check_chain_router` 幂等闭包路由 |
+| 子图字段被丢弃 | 字段未在子图 schema 声明 | WritingCrewLocalState 声明 critic/guidance/best_version 等 |
+| VerdictEngine 评分异常 | 统一评审失败/熔断 | 检查 `llm_analysis_failed` 与熔断器状态 |
 
 > 部署/运维相关问题参见 [06-deployment-operations.md](file:///Users/jason/Downloads/langgraph/.trae/rules/06-deployment-operations.md)
 
 ---
 
-**规则版本：** v3.2.0
+**规则版本：** v3.3.0
 **生效方式：** 智能生效
-**最后更新：** 2026-07-04
+**最后更新：** 2026-08-17

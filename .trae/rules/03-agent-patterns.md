@@ -1,10 +1,10 @@
 ---
 alwaysApply: false
-description: "Agent开发规范，匹配agents/**、schemas/**。改Agent行为、调LLM参数、重试/熔断/缓存/配额/超时、结构化输出降级、Agent工厂、辩论Schema时触发。infra（retry/circuit_breaker/llm_cache/quota/timeout）、结构化输出、LLM配置（0.3/0.75/0.2）、WallTimeTracker、_ENV_OVERRIDES。"
+description: "Agent开发规范，匹配agents/**、schemas/**。改Agent行为、调LLM参数、重试/熔断/缓存/配额/超时、结构化输出降级、Agent工厂、统一评审Schema时触发。infra（retry/circuit_breaker/llm_cache/quota/timeout）、结构化输出、LLM配置（0.3/0.75/0.2）、WallTimeTracker、_ENV_OVERRIDES。"
 ---
 # Agent 开发模式规范
 
-**版本：** v1.2.0
+**版本：** v1.3.0
 **生效方式：** 智能生效
 **优先级：** ⭐⭐⭐⭐⭐
 **匹配模式：** `agents/**`, `schemas/**`, `evaluation/**`
@@ -20,14 +20,14 @@ description: "Agent开发规范，匹配agents/**、schemas/**。改Agent行为�
 | `retry.py` | 同步 LLM 调用包装器 — timeout + 错误类型感知重试 + 用量审计 |
 | `async_retry.py` | 异步 LLM 调用包装器 — asyncio 版 timeout + 重试 + 缓存 |
 | `_retry_common.py` | 同步/异步重试公共逻辑（状态分类、截断检测、用量记录） |
-| `circuit_breaker.py` | 基于服务的熔断器（ARK/DeepSeek/硅基流动三态保护） |
+| `circuit_breaker.py` | 基于服务的熔断器（ARK/DeepSeek/硅基流动三态保护，Redis 持久化） |
 | `llm_cache.py` | LLM 响应缓存 — 基于 Redis 的语义缓存，优雅降级 |
 | ~~`rag_cache.py`~~ | ~~RAG 检索结果 LRU 缓存 - 线程级、TTL 驱动~~（已移除） |
 | `quota.py` | Token/请求配额管理 — DeepSeek Billing API 限速检测 |
 | `timeout.py` | LLM 调用超时守卫 — threading.Event 跨平台实现 |
 | `serialization.py` | LLM 输出 JSON 提取与校验 — fail-closed 设计 |
 | `logger.py` | 结构化日志 — 支持文件轮转/JSON 格式 |
-| `helpers.py` | 状态访问助手 + AI 消息文本提取 |
+| `helpers.py` | Agent 工厂助手（超时/重试策略解析）+ AI 消息文本提取 |
 | `stream.py` | Crew 流式输出 — 缓冲写入临时文件供用户可见 |
 | `usage.py` | Token 用量追踪 — 进程级计数 + 成本估算 |
 
@@ -91,14 +91,15 @@ DEFAULT_RETRY = RetryPolicy(
 ### 1.3 LLM 缓存 + RAG 缓存
 
 **LLM 缓存**（`llm_cache.py`）：
-- 缓存键：`sha256(prompt[:2000]) + model + temperature`
+- 缓存键：`sha256(prompt全量哈希) + model + temperature`（v8.5-fix M7：原仅哈希前 2000 字符有碰撞风险）
 - 默认 TTL：3600 秒（1 小时）
 - Redis 不可用时优雅降级，不影响主流程
 - `async_llm_call_with_retry` 通过 `cache_prompt` 参数集成
+- 缓存写入使用 `extract_ai_message_text` 提取纯文本（v8.5-fix M7：原 json.dumps Message 对象必失败）
 
 ```python
 cache_key = _build_cache_key(model, temperature, prompt)
-# → "llm_cache:{model}:t{temperature:.2f}:{prompt_hash}"
+# → "llm_cache:{model}:t{temperature:.2f}:{prompt_hash}"  （prompt_hash = sha256(完整 prompt)[:16]）
 ```
 
 **RAG 缓存**（~~`rag_cache.py`~~，已移除）：
@@ -136,7 +137,7 @@ def with_timeout(seconds: float, default: T) -> Callable:
 | `serialization.py` | `_extract_json_from_text()` 从 LLM 自由文本中提取 JSON；`validate_json_output()` 提供 fail-closed 校验 |
 | `usage.py` | 进程级 Token 计数（替代 threading.local），支持 DeepSeek Flash 定价模型：¥0.5/1M 输入 + ¥2.0/1M 输出 |
 | `logger.py` | `get_logger()` 工厂函数，支持文本/JSON 两种格式，可选 RotatingFileHandler（10MB × 5 备份） |
-| `helpers.py` | `extract_ai_message_text()` 统一提取最后一条 AI 消息；`_extract_from_state()` 支持 `crew_result` 嵌套读取 |
+| `helpers.py` | `extract_ai_message_text()` 统一提取最后一条 AI 消息；`_resolve_agent_timeout_policy()` 从 llm_params 查 worker tier 超时/重试策略（v8.5-fix M6）；`extract_fields_from_state()` 嵌套读取 state 字段；`make_retry_agent_invoke/ainvoke()` Agent 工厂包装 |
 | `stream.py` | `StreamWriter` 缓冲写入临时文件，每 5 次 write 批量刷盘；`get_crew_stream()` / `cleanup_crew_stream()` 管理 Crew 生命周期 |
 
 ---
@@ -211,7 +212,7 @@ def invoke_structured_or_freetext(
 | `agents/setup_agents.py` | Setup Agent（项目初始化） |
 | `agents/media_agents.py` | 媒体生成 Agent（图片/音频） |
 | `agents/sync_agents.py` | 飞书同步 Agent |
-| `agents/quality_panel_agents.py` | 旧版辩论评审 Agent（v6.3 废弃，仅保留兼容引用） |
+| ~~`agents/quality_panel_agents.py`~~ | ~~旧版辩论评审 Agent~~（v8.5-clean 已删除，无引用） |
 
 ### 3.2 多智能体并行模式
 
@@ -231,28 +232,24 @@ with ThreadPoolExecutor(max_workers=2, thread_name_prefix="media_crew") as pool:
 - 每个 Agent 有独立的重试机制（`_media_tool_router`，最多 3 次）
 - 单 Agent 失败自动降级，不影响另一 Agent
 
-#### 3.2.2 逻辑并行（评审子Agent）
+#### 3.2.2 统一评审子Agent（v8.2）
 
-`evaluation/verdict/engine.py` 中的 `VerdictEngine.evaluate()` 统一编排 4 个评审维度，每个有独立 try/except：
+`evaluation/unified/engine.py` 的 `UnifiedReviewEngine.evaluate()` 单次 LLM 调用完成五视角评审（替代旧 4 路并行）：
 
 ```python
-# 各子 Agent 地位平等，互不依赖
-quality_result = _safe_call(run_quality_review, ...)    # 四维评分
-ai_result = _safe_call(run_ai_style_review, ...)        # AI 味检测
-old_result = _safe_call(run_old_reader_review, ...)     # 老书虫评审
-debate_result = _safe_call(run_debate_review, ...)      # 辩论评审
+# 一次调用：五视角（老书虫/番茄编辑/读者/评论员）+ 四维分项
+ur = await unified_engine.evaluate(chapter_text=..., genre=..., ...)
+# → 标签化解析 + _clamp 钳制 → 自洽校验 → 分歧仲裁
 ```
 
-#### 3.2.3 VerdictEngine 融合评审（替代 v5.5 QualityPanel）
+#### 3.2.3 VerdictEngine 统一评审融合（替代 v5.5 QualityPanel）
 
-评审已从 Agent-based quality_panel 重构为 `evaluation/` 模块中的结构化评分管线。核心 `VerdictEngine`（`evaluation/verdict/engine.py`）融合多源评分：
+评审已从 Agent-based quality_panel 重构为 `evaluation/` 模块中的统一 LLM 评审管线。核心 `VerdictEngine`（`evaluation/verdict/engine.py`）融合统一评审结果：
 
-- **四维 LLM 评分** → `evaluation/llm/_shared.py`
-- **程序化评分** → `evaluation/programmatic/runner.py`
-- **LLM 老书虫语义分** → `evaluation/llm/old_reader_llm.py`
-- **LLM AI味语义分** → `evaluation/llm/ai_style_llm.py`
-- **辩论评分** → `evaluation/debate/engine.py`（InformedDebateEngine 编辑↔读者↔Critic 3 角色多轮辩论）
-- **跨章一致性** → `evaluation/programmatic/cross_chapter_sensor.py`
+- **统一 LLM 评审** → `evaluation/unified/engine.py`（五视角单次调用）
+- **自洽校验** → `evaluation/unified/parser.py`（apply_consistency_check）
+- **分歧仲裁** → `evaluation/unified/arbitration.py`（仅 severe 分歧，1 次调用）
+- **三级决议** → `evaluation/verdict/engine.py`（PASS/REFINE/REWRITE + 迭代加分）
 
 详见 [04-quality-scoring.md](file:///Users/jason/Downloads/langgraph/.trae/rules/04-quality-scoring.md)
 
@@ -273,13 +270,13 @@ debate_result = _safe_call(run_debate_review, ...)      # 辩论评审
 | `setup_agents` | seed_idea, genre | project_outline, world_setting | 项目初始化阶段 |
 | `writing_agents` | chapter_outline, context | chapter_content | 章节写作 |
 | `review_agents` | chapter_content | review_decision | 人工审核等待 |
-| `quality_panel_agents` | chapter_content | quality_score, issues | 辩论式自动评审 |
 | `media_agents` | chapter_content | media_urls | 媒体生成 |
 | `sync_agents` | chapter_content | feishu_doc_url | 飞书同步 |
+| ~~`quality_panel_agents`~~ | ~~chapter_content~~ | ~~quality_score, issues~~ | ~~辩论式自动评审（v8.2 已移除，由统一 LLM 评审替代）~~ |
 
 ### 3.3 评审 Schema（evaluation/）
 
-评分 Schema 定义在 `evaluation/schemas.py`，评审 Schema 定义在 `schemas/review_schemas.py`，辩论 Schema 定义在 `evaluation/debate/engine.py`。
+评分 Schema 定义在 `evaluation/unified/schemas.py`（UnifiedReviewResult）+ `evaluation/schemas.py`（VerdictResult），评审 Schema 定义在 `schemas/review_schemas.py`。
 
 ---
 
@@ -382,9 +379,10 @@ _ENV_OVERRIDES = {
     "NOVELFACTORY_MAX_RETRIES": "MAX_RETRIES",
     "NOVELFACTORY_CHAPTER_MIN_WORD_COUNT": "CHAPTER_MIN_WORD_COUNT",
     "NOVELFACTORY_CHAPTER_TARGET_WORD_COUNT": "CHAPTER_TARGET_WORD_COUNT",
-    "NOVELFACTORY_QUOTA_THRESHOLD": "QUOTA_THRESHOLD",
 }
 ```
+
+> v8.5-fix（M5）：`NOVELFACTORY_QUOTA_THRESHOLD` 及配额双源死配置已删除；配额由 `config/quota.py`（QuotaSettings）单一来源管理。
 
 `_coerce_env` 的类型安全转换逻辑：
 
@@ -423,18 +421,18 @@ export NOVELFACTORY_MAX_RETRIES=5
 
 | 问题 | 原因 | 解决 |
 |------|------|------|
-| quality_panel 辩论超限（旧版，v6.3 废弃） | 评分持续分歧 | 降级到默认通过（q=85, c=0.7），VerdictEngine 最多 3 轮辩论 |
-| VerdictEngine 评分异常 | LLM 语义分全部降级 | 检查熔断器状态和配额余量 |
+| 统一评审失败触发重写 | `ur.failed` 未单独处理 | v8.5-fix：评审失败降级 PASS，仅记录 `llm_analysis_failed` |
+| 分数越界 ValidationError | LLM 输出 >100 / >1.0 | parser/仲裁/engine 三层 `_clamp` 钳制 |
 | `structured` 降级频繁 | provider 不支持 `with_structured_output` | 检查 `bind_structured` 日志 |
 | 异步重试死锁 | 同步上下文调用异步重试 | 同步节点使用 `retry.py`，异步节点使用 `async_retry.py` |
-| LLM 缓存未命中 | 缓存键不匹配 | 检查 `_build_cache_key` 使用的 model/temperature/prompt 是否一致 |
+| LLM 缓存未命中 | 缓存键不匹配 | 检查 `_build_cache_key` 使用的 model/temperature/prompt 是否一致（全 prompt 哈希） |
 | 配额检查误阻塞 | 配额 API 返回异常数据 | 配额 API 错误时自动优雅降级，仅 HTTP 错误/超时时跳过检查 |
 | 熔断器频繁打开 | Provider 服务不稳定 | 检查 `cooldown_seconds` 和 `max_failures` 配置，考虑增加冷却时间 |
 | `extract_ai_message_text` 返回空 | messages 格式不符合预期 | 检查 result 中 messages 的结构，确认 `type=="ai"` 的消息存在 |
-| RAG 缓存命中率低 | dataset_id 拼写不一致 | 确保所有调用点使用统一的 dataset_id 命名约定 |
+| 熔断器状态跨模块污染（测试） | 打开状态残留 | 测试中 `_reset_circuit_state` autouse fixture 复位 |
 
 ---
 
-**规则版本：** v1.2.0
+**规则版本：** v1.3.0
 **生效方式：** 智能生效
-**最后更新：** 2026-07-04
+**最后更新：** 2026-08-17
