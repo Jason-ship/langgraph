@@ -1,17 +1,12 @@
 """LLM 评价分析模块共享工具函数。
 
-提取公共函数消除 old_reader_llm.py 与 ai_style_llm.py 之间的重复。
+v8.5-clean: 清理 v8.2 前遗留的解析函数（safe_match/extract_float/extract_bool/clamp），
+仅保留 trim_text（被 unified/prompts.py 引用）。
 """
 
 from __future__ import annotations
 
-import re
-from typing import TYPE_CHECKING
-
 from novelfactory.evaluation.llm.prompts import LLM_REVIEW_MAX_CHARS
-
-if TYPE_CHECKING:
-    pass
 
 
 def trim_text(text: str, max_chars: int = LLM_REVIEW_MAX_CHARS) -> str:
@@ -42,35 +37,3 @@ def trim_text(text: str, max_chars: int = LLM_REVIEW_MAX_CHARS) -> str:
         mid = ""
 
     return f"{head}\n[...]\n{mid}\n[...]\n{tail}"
-
-
-def safe_match(pattern: re.Pattern[str], text: str) -> str | None:
-    """安全执行正则匹配，失败返回 None。
-
-    WebNovelBench 风格：标签化输出的解析使用简单正则，
-    比 JSON 解析（validate_json_output）更鲁棒。
-    """
-    m = pattern.search(text)
-    return m.group(1).strip() if m else None
-
-
-def extract_float(text: str | None, default: float = 0.0) -> float:
-    """安全提取浮点数，失败返回 default。"""
-    if text is None:
-        return default
-    try:
-        return float(text.strip())
-    except (ValueError, TypeError):
-        return default
-
-
-def extract_bool(text: str | None, default: bool = False) -> bool:
-    """安全提取布尔值（true/false 不区分大小写）。"""
-    if text is None:
-        return default
-    return text.strip().lower() == "true"
-
-
-def clamp(value: float, lo: float = 0.0, hi: float = 100.0) -> float:
-    """裁剪值到 [lo, hi] 区间。"""
-    return max(lo, min(hi, value))

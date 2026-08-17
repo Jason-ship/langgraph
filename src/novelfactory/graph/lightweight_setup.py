@@ -17,13 +17,11 @@ Streaming: writes partial output to a temp file after each agent finishes.
 
 from __future__ import annotations
 
-from langchain_core.runnables import Runnable
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
 from novelfactory.agents.infra import (
     get_logger,
-    llm_call_with_retry,
     validate_json_output,
 )
 from novelfactory.config.constants import SUBGRAPH_RECURSION_LIMIT
@@ -36,17 +34,6 @@ _logger = get_logger("novelfactory.graph.lightweight_setup")
 _SETUP_QUALITY_THRESHOLD = 70.0
 _CHAPTER_RANGE_SIZE_START = 1  # chapter_range 列表最小元素数（访问索引 0 用）
 _CHAPTER_RANGE_SIZE_END = 2  # chapter_range 列表最小元素数（访问索引 1 用）
-
-
-def _retry_invoke(agent: Runnable, input_dict: dict, step_name: str) -> dict:
-    """Production-grade agent.invoke with timeout + exponential-backoff retry."""
-    result = llm_call_with_retry(
-        agent.invoke,
-        input_dict,
-        step_name=f"lightweight_setup.{step_name}",
-        fallback={"messages": [], "crew_result": {}},
-    )
-    return result if result is not None else {"messages": [], "crew_result": {}}
 
 
 async def _llm_quality_gate(

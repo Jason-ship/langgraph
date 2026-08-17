@@ -118,23 +118,6 @@ class WritingCrewLocalState(BaseCrewState):
     best_version_text: str
     best_version_quality: float
 
-    # ── Temporary Fields (not persisted, cleared at subgraph exit) ───────────
-    # These fields are used for in-flight communication between writing nodes
-    # and should NOT be propagated to the parent graph checkpoint.
-    # They are prefixed with _temp_ to distinguish from persistent fields.
-    _temp_toxic_points: list[str]
-    _temp_shuangdian_points: list[str]
-    _temp_guide_references: list[dict]
-    _temp_ai_style_fix: str
-    _temp_lao_shu_chong_fix: str
-    _temp_debate_issues: list[str]
-    _temp_debate_strengths: list[str]
-    _temp_debate_suggestions: str
-    _temp_is_short_text: bool
-    _temp_debate_transcript: str
-    _temp_ai_style_metrics_brief: str
-    _temp_cross_chapter_brief: str
-
 
 # ── Graph Builder ─────────────────────────────────────────────────────────────
 

@@ -319,11 +319,3 @@ async def intelligent_monitor_node(
 
     return updates
 
-
-def build_monitor_node() -> dict:
-    """构建监控节点的外观函数（兼容 graph.add_node 调用约定）。
-
-    LangGraph 的节点函数签名是 (state) -> dict，
-    所以 intelligent_monitor_node 可以直接用。
-    """
-    return {"node": intelligent_monitor_node}
